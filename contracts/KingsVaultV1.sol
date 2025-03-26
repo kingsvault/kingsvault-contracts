@@ -8,6 +8,7 @@ import {ERC1155PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/to
 import {ERC1155SupplyUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @custom:security-contact hi@kingsvault.io
 contract KingsVaultV1 is
@@ -18,6 +19,8 @@ contract KingsVaultV1 is
     ERC1155BurnableUpgradeable,
     ERC1155SupplyUpgradeable
 {
+    using Strings for uint256;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -33,6 +36,23 @@ contract KingsVaultV1 is
 
     function setURI(string memory newuri) public onlyOwner {
         _setURI(newuri);
+    }
+
+    function uri(
+        uint256 tokenId
+    ) public view virtual override returns (string memory) {
+        string memory baseURI = super.uri(tokenId);
+
+        return
+            bytes(baseURI).length > 0
+                ? string(
+                    abi.encodePacked(
+                        baseURI,
+                        Strings.toString(tokenId),
+                        ".json"
+                    )
+                )
+                : "";
     }
 
     function pause() public onlyOwner {
@@ -62,7 +82,6 @@ contract KingsVaultV1 is
     }
 
     // The following functions are overrides required by Solidity.
-
     function _update(
         address from,
         address to,
