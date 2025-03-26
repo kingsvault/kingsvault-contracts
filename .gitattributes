@@ -1,0 +1,7 @@
+# Auto detect text files and perform LF normalization
+* text=lf
+*.sol text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
