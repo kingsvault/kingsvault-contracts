@@ -4,20 +4,21 @@ pragma solidity ^0.8.22;
 
 import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
 import {ERC1155BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
-import {ERC1155PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155PausableUpgradeable.sol";
 import {ERC1155SupplyUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+
 /// @custom:security-contact hi@kingsvault.io
 contract KingsVaultV1 is
     Initializable,
     ERC1155Upgradeable,
-    OwnableUpgradeable,
-    ERC1155PausableUpgradeable,
     ERC1155BurnableUpgradeable,
-    ERC1155SupplyUpgradeable
+    ERC1155SupplyUpgradeable,
+    OwnableUpgradeable,
+    PausableUpgradeable
 {
     using Strings for uint256;
 
@@ -28,10 +29,10 @@ contract KingsVaultV1 is
 
     function initialize(address initialOwner) public initializer {
         __ERC1155_init("https://kingsvault.github.io/metadata/");
-        __Ownable_init(initialOwner);
-        __ERC1155Pausable_init();
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
+        __Ownable_init(initialOwner);
+        __Pausable_init();
     }
 
     function setURI(string memory newuri) public onlyOwner {
@@ -87,14 +88,17 @@ contract KingsVaultV1 is
         address to,
         uint256[] memory ids,
         uint256[] memory values
-    )
-        internal
-        override(
-            ERC1155Upgradeable,
-            ERC1155PausableUpgradeable,
-            ERC1155SupplyUpgradeable
-        )
-    {
+    ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) {
+        if (from == address(0)) {
+            // Then Mint
+        } else {
+            if (to == address(0)) {
+                // Then Burn
+                // TODO Check if not Winner burn win token ids
+                //super._update(from, to, ids, values);
+            }
+            _requireNotPaused();
+        }
         super._update(from, to, ids, values);
     }
 }
