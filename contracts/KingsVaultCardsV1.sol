@@ -35,7 +35,8 @@ contract KingsVaultCardsV1 is
     ERC1155SupplyUpgradeable,
     ERC2981Upgradeable,
     OwnableUpgradeable,
-    PausableUpgradeable
+    PausableUpgradeable,
+    IMetadata
 {
     using Strings for uint256;
 
@@ -122,12 +123,18 @@ contract KingsVaultCardsV1 is
         );
     }
 
-    function name() external view virtual returns (string memory) {
+    /**
+     * @dev Returns the token collection name.
+     */
+    function name() external view virtual override returns (string memory) {
         MetadataStorage storage $ = _getMetadataStorage();
         return $._name;
     }
 
-    function symbol() external view virtual returns (string memory) {
+    /**
+     * @dev Returns the token collection symbol.
+     */
+    function symbol() external view virtual override returns (string memory) {
         MetadataStorage storage $ = _getMetadataStorage();
         return $._symbol;
     }
@@ -168,6 +175,14 @@ contract KingsVaultCardsV1 is
                 : "";
     }
 
+    function stopTrade() public onlyOwner {
+        _pause();
+    }
+
+    function startTrade() public onlyOwner {
+        _unpause();
+    }
+
     function mint(
         address account,
         uint256 id,
@@ -184,11 +199,6 @@ contract KingsVaultCardsV1 is
         bytes memory data
     ) public onlyOwner {
         _mintBatch(to, ids, amounts, data);
-    }
-
-    function setPause(bool status) external onlyOwner {
-        if (status) _pause();
-        else _unpause();
     }
 
     /**
