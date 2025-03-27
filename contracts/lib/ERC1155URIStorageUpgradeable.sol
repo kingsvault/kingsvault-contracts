@@ -1,1 +1,0 @@
-abstract contract ERC1155URIStorageUpgradeable is
