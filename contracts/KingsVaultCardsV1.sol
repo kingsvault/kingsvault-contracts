@@ -45,9 +45,9 @@ contract KingsVaultCardsV1 is
         string _baseURI;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC721")) - 1)) & ~bytes32(uint256(0xff))
+    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.metadata")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MetadataStorageLocation =
-        0x80bb2b638cc20bc4d0a60d66940f3ab4a00c1d7b313497ca82fb0b4ab0079300;
+        0xcc940b55fd63d6ffbe37b3e06982f371d55299a99d110340df096abb3f7ed400;
 
     function _getMetadataStorage()
         private
