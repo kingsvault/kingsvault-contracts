@@ -12,7 +12,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 /// @custom:security-contact hi@kingsvault.io
-contract KingsVaultV1 is
+contract KingsVaultCardsV1 is
     Initializable,
     ERC1155Upgradeable,
     ERC1155BurnableUpgradeable,
