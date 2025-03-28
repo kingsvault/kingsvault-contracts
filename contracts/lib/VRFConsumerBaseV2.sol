@@ -44,7 +44,7 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         $._vrfCoordinator = vrfCoordinator_;
     }
 
-    function vrfCoordinator() public pure returns (address) {
+    function getVrfCoordinator() public pure returns (address) {
         VrfStorage memory $ = _getVrfStorage();
         return $._vrfCoordinator;
     }
@@ -82,9 +82,9 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         uint256[] memory randomWords
     ) external {
         address sender = _msgSender();
-        address _vrfCoordinator = vrfCoordinator();
-        if (sender != _vrfCoordinator) {
-            revert OnlyCoordinatorCanFulfill(sender, _vrfCoordinator);
+        address vrfCoordinator = getVrfCoordinator();
+        if (sender != vrfCoordinator) {
+            revert OnlyCoordinatorCanFulfill(sender, vrfCoordinator);
         }
         fulfillRandomWords(requestId, randomWords);
     }
