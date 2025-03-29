@@ -7,26 +7,39 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 
-// Original file @chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol
+/**
+ * @title VRFConsumerBaseV2
+ * @dev Abstract contract for integrating Chainlink VRF (Verifiable Random Function) in upgradeable contracts.
+ * Inherits from Initializable and OwnableUpgradeable.
+ * Original file @chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol
+ */
 abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
     struct VrfStorage {
-        address _vrfCoordinator;
+        address _vrfCoordinator; // Address of the Chainlink VRF Coordinator contract
     }
 
-    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.vrf")) - 1)) & ~bytes32(uint256(0xff))
+    /**
+     * @dev Storage slot for VRF configuration using a deterministic location.
+     * keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.vrf")) - 1)) & ~bytes32(uint256(0xff))
+     */
     bytes32 private constant VrfStorageLocation =
         0x2168c89e472257df265406ae281e71a9a09e0b3846f5d33f67a174b58c0b4d00;
 
+    /**
+     * @dev Retrieves the storage struct for VRF configuration using assembly.
+     */
     function _getVrfStorage() private pure returns (VrfStorage storage $) {
         assembly {
             $.slot := VrfStorageLocation
         }
     }
 
+    /// @dev Error thrown when a non-coordinator address attempts to fulfill randomness.
     error OnlyCoordinatorCanFulfill(address have, address want);
 
     /**
-     * @param vrfCoordinator_ address of VRFCoordinator contract
+     * @dev Initializes the VRFConsumerBaseV2 contract.
+     * @param vrfCoordinator_ Address of the Chainlink VRF Coordinator.
      */
     function __VRFConsumerBaseV2_init(
         address vrfCoordinator_
@@ -35,7 +48,8 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
     }
 
     /**
-     * @param vrfCoordinator_ address of VRFCoordinator contract
+     * @dev Initializes the VRF coordinator address.
+     * @param vrfCoordinator_ Address of the Chainlink VRF Coordinator.
      */
     function __VRFConsumerBaseV2_init_unchained(
         address vrfCoordinator_
@@ -44,39 +58,39 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         $._vrfCoordinator = vrfCoordinator_;
     }
 
+    /**
+     * @dev Returns the address of the VRF Coordinator.
+     */
     function getVrfCoordinator() public pure returns (address) {
         VrfStorage memory $ = _getVrfStorage();
         return $._vrfCoordinator;
     }
 
+    /**
+     * @dev Allows the owner to update the VRF Coordinator address.
+     * @param vrfCoordinator_ New address of the VRF Coordinator.
+     */
     function setVrfCoordinator(address vrfCoordinator_) external onlyOwner {
         VrfStorage storage $ = _getVrfStorage();
         $._vrfCoordinator = vrfCoordinator_;
     }
 
     /**
-     * @notice fulfillRandomness handles the VRF response. Your contract must
-     * @notice implement it. See "SECURITY CONSIDERATIONS" above for important
-     * @notice principles to keep in mind when implementing your fulfillRandomness
-     * @notice method.
-     *
-     * @dev VRFConsumerBaseV2 expects its subcontracts to have a method with this
-     * @dev signature, and will call it once it has verified the proof
-     * @dev associated with the randomness. (It is triggered via a call to
-     * @dev rawFulfillRandomness, below.)
-     *
-     * @param requestId The Id initially returned by requestRandomness
-     * @param randomWords the VRF output expanded to the requested number of words
+     * @notice This function should be implemented in derived contracts to handle VRF responses.
+     * @param requestId The unique identifier for the randomness request.
+     * @param randomWords The array of random words provided by Chainlink VRF.
      */
-    // solhint-disable-next-line chainlink-solidity/prefix-internal-functions-with-underscore
     function fulfillRandomWords(
         uint256 requestId,
         uint256[] memory randomWords
     ) internal virtual;
 
-    // rawFulfillRandomness is called by VRFCoordinator when it receives a valid VRF
-    // proof. rawFulfillRandomness then calls fulfillRandomness, after validating
-    // the origin of the call
+    /**
+     * @dev Called by the Chainlink VRF Coordinator to provide randomness.
+     * Ensures that only the correct VRF Coordinator can call it.
+     * @param requestId The unique identifier for the randomness request.
+     * @param randomWords The array of random words provided by Chainlink VRF.
+     */
     function rawFulfillRandomWords(
         uint256 requestId,
         uint256[] memory randomWords
