@@ -11,7 +11,7 @@ import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/inter
  * @title VRFConsumerBaseV2
  * @dev Abstract contract for integrating Chainlink VRF (Verifiable Random Function) in upgradeable contracts.
  * Inherits from Initializable and OwnableUpgradeable.
- * Original file @chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol
+ * Original file chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol
  */
 abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
     struct VrfStorage {
