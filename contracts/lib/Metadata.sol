@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Compatible with OpenZeppelin Contracts ^5.0.0
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -39,6 +39,9 @@ abstract contract Metadata is
             $.slot := MetadataStorageLocation
         }
     }
+
+    /// @dev Emitted when the contract URI is updated.
+    event ContractURIUpdated(string prevURI, string newURI);
 
     function __Metadata_init(
         string memory uri_,
@@ -101,7 +104,7 @@ abstract contract Metadata is
      * @dev Returns the token collection name.
      */
     function name() external view returns (string memory) {
-        MetadataStorage storage $ = _getMetadataStorage();
+        MetadataStorage memory $ = _getMetadataStorage();
         return $._name;
     }
 
@@ -109,22 +112,24 @@ abstract contract Metadata is
      * @dev Returns the token collection symbol.
      */
     function symbol() external view returns (string memory) {
-        MetadataStorage storage $ = _getMetadataStorage();
+        MetadataStorage memory $ = _getMetadataStorage();
         return $._symbol;
     }
 
     function baseURI() external view returns (string memory) {
-        MetadataStorage storage $ = _getMetadataStorage();
+        MetadataStorage memory $ = _getMetadataStorage();
         return $._baseURI;
     }
 
     function setBaseURI(string memory newuri) external onlyOwner {
+        string memory prev = contractURI();
         MetadataStorage storage $ = _getMetadataStorage();
         $._baseURI = newuri;
+        emit ContractURIUpdated(prev, contractURI());
     }
 
-    function contractURI() external view returns (string memory) {
-        MetadataStorage storage $ = _getMetadataStorage();
+    function contractURI() public pure returns (string memory) {
+        MetadataStorage memory $ = _getMetadataStorage();
         return
             bytes($._baseURI).length > 0
                 ? string.concat($._baseURI, "contract.json")
@@ -134,7 +139,7 @@ abstract contract Metadata is
     function uri(
         uint256 tokenId
     ) public view virtual override returns (string memory) {
-        MetadataStorage storage $ = _getMetadataStorage();
+        MetadataStorage memory $ = _getMetadataStorage();
         return
             bytes($._baseURI).length > 0
                 ? string(

@@ -5,11 +5,15 @@ require("dotenv").config();
 
 
 module.exports = {
-  solidity: "0.8.22",
-  settings: {
-    optimizer: {
-      enabled: true,
-      runs: 200,
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      //viaIR: true,
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+      evmVersion: "cancun",
     },
   },
 
