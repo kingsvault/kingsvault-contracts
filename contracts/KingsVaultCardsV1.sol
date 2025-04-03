@@ -212,8 +212,6 @@ contract KingsVaultCardsV1 is
     ) private {
         require(tier >= 0 && tier < 4, "Invalid item type");
 
-        address userAddress = _msgSender();
-
         StateStorage storage state = _getStateStorage();
 
         uint256 cost = state._prices[tier] * quantity;
@@ -246,11 +244,13 @@ contract KingsVaultCardsV1 is
         }
 
         uint256 newTickets = state._bonusTickets[tier] * quantity;
-        for (uint256 i = 0; i < newTickets; i++) {
-            //participants.push(userAddress);
-            //purchases[userAddress].ticketNumbers.push(participants.length - 1);
-            // TODO event
-        }
+        _mintTickets(userAddress, newTickets);
+        //_nextTicketId()
+        //for (uint256 i = 0; i < newTickets; i++) {
+        //participants.push(userAddress);
+        //purchases[userAddress].ticketNumbers.push(participants.length - 1);
+        // TODO event
+        //}
 
         emit Purchase(userAddress, tier, quantity, newTickets);
         // Если больше 1000 то фиксируем количество билетов
@@ -258,7 +258,7 @@ contract KingsVaultCardsV1 is
 
     //+
     function _getRandomTokenId(uint256 tier) private view returns (uint256) {
-        uint256 baseId = tier * 10+1;
+        uint256 baseId = tier * 10 + 1;
         return
             baseId +
             (uint256(
@@ -278,12 +278,14 @@ contract KingsVaultCardsV1 is
         uint256[] calldata tickets
     ) external onlyOwner {
         require(users.length == tickets.length, "Parameters mismatch");
+        // до 1к пользователей нельзя подарить токены.
 
         DrawStorage storage draw = _getDrawStorage();
         for (uint256 i = 0; i < users.length; ++i) {
-            draw._tickets.push(users[i]);
-            draw._users[users[i]]._tickets.
-            emit BonusTicket(users[i], draw._tickets.length - 1);
+            //draw._tickets.push(users[i]);
+            //draw._users[users[i]]._tickets.
+            //emit BonusTicket(users[i], draw._tickets.length - 1);
+            _mintTickets(users[i], tickets[i]);
         }
     }
 
@@ -353,7 +355,7 @@ contract KingsVaultCardsV1 is
 
     //+
     function _getTierByTokenId(uint256 id) private pure returns (uint256) {
-        return (id-1) / 10;
+        return (id - 1) / 10;
     }
 
     // ========== Buyback section ended. ==========

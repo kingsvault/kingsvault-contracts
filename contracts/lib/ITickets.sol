@@ -7,101 +7,26 @@ pragma solidity 0.8.28;
  */
 interface ITickets {
     /**
-     * The caller must own the ticket or be an approved operator.
-     */
-    error ApprovalCallerNotOwnerNorApproved();
-
-    /**
-     * The ticket does not exist.
-     */
-    error ApprovalQueryForNonexistentToken();
-
-    /**
      * Cannot query the balance for the zero address.
      */
-    error BalanceQueryForZeroAddress();
+    error TicketsBalanceQueryForZeroAddress();
 
     /**
      * Cannot mint to the zero address.
      */
-    error MintToZeroAddress();
+    error TicketsMintToZeroAddress();
 
     /**
      * The quantity of tickets minted must be more than zero.
      */
-    error MintZeroQuantity();
+    error TicketsMintZeroQuantity();
 
     /**
      * The ticket does not exist.
      */
-    error OwnerQueryForNonexistentToken();
+    error OwnerQueryForNonexistentTicket();
 
-    /**
-     * The caller must own the ticket or be an approved operator.
-     */
-    error TransferCallerNotOwnerNorApproved();
-
-    /**
-     * The ticket must be owned by `from`.
-     */
-    error TransferFromIncorrectOwner();
-
-    /**
-     * Cannot safely transfer to a contract that does not implement the
-     * ERC721Receiver interface.
-     */
-    error TransferToNonERC721ReceiverImplementer();
-
-    /**
-     * Cannot transfer to the zero address.
-     */
-    error TransferToZeroAddress();
-
-    /**
-     * The ticket does not exist.
-     */
-    error URIQueryForNonexistentToken();
-
-    /**
-     * The `quantity` minted with ERC2309 exceeds the safety limit.
-     */
-    error MintERC2309QuantityExceedsLimit();
-
-    /**
-     * The `extraData` cannot be set on an unintialized ownership slot.
-     */
-    error OwnershipNotInitializedForExtraData();
-
-    /**
-     * `_ticketSequentialUpTo()` must be greater than `_startTicketId()`.
-     */
-    error SequentialUpToTooSmall();
-
-    /**
-     * The `ticketId` of a sequential mint exceeds `_ticketSequentialUpTo()`.
-     */
-    error SequentialMintExceedsLimit();
-
-    /**
-     * Spot minting requires a `ticketId` greater than `_ticketSequentialUpTo()`.
-     */
-    error SpotMintTokenIdTooSmall();
-
-    /**
-     * Cannot mint over a ticket that already exists.
-     */
-    error TokenAlreadyExists();
-
-    /**
-     * The feature is not compatible with spot mints.
-     */
-    error NotCompatibleWithSpotMints();
-
-    // =============================================================
-    //                            STRUCTS
-    // =============================================================
-
-    struct TokenOwnership {
+    struct TicketOwnership {
         // The address of the owner.
         address addr;
         // Stores the start time of ownership with minimal overhead for tokenomics.
@@ -112,34 +37,23 @@ interface ITickets {
         uint24 extraData;
     }
 
-    // =============================================================
-    //                         TOKEN COUNTERS
-    // =============================================================
-
     /**
      * @dev Returns the total number of tickets in existence.
-     * Burned tickets will reduce the count.
-     * To get the total number of tickets minted, please see {_totalMinted}.
+     * To get the total number of tickets minted.
      */
-    function totalSupply() external view returns (uint256);
-
-    // =============================================================
-    //                            IERC721
-    // =============================================================
+    function ticketsTotal() external view returns (uint256);
 
     /**
-     * @dev Emitted when `ticketId` ticket is transferred from `from` to `to`.
+     * @dev Emitted when `ticketId` ticket is minted to `owner`.
      */
-    event Transfer(
-        address indexed from,
-        address indexed to,
-        uint256 indexed ticketId
-    );
+    event Ticket(address indexed owner, uint256 indexed ticketId);
 
     /**
      * @dev Returns the number of tickets in `owner`'s account.
      */
-    function balanceOf(address owner) external view returns (uint256 balance);
+    function ticketsBalanceOf(
+        address owner
+    ) external view returns (uint256 balance);
 
     /**
      * @dev Returns the owner of the `ticketId` ticket.
@@ -147,5 +61,7 @@ interface ITickets {
      * Requirements:
      * - `ticketId` must exist.
      */
-    function ownerOf(uint256 ticketId) external view returns (address owner);
+    function ticketsOwnerOf(
+        uint256 ticketId
+    ) external view returns (address owner);
 }

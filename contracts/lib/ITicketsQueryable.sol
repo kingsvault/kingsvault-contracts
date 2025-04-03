@@ -11,10 +11,10 @@ interface ITicketsQueryable is ITickets {
     /**
      * Invalid query range (`start` >= `stop`).
      */
-    error InvalidQueryRange();
+    error TicketsInvalidQueryRange();
 
     /**
-     * @dev Returns the `TokenOwnership` struct at `ticketId` without reverting.
+     * @dev Returns the `TicketOwnership` struct at `ticketId` without reverting.
      *
      * If the `ticketId` is out of bounds:
      * - `addr = address(0)`
@@ -34,17 +34,9 @@ interface ITicketsQueryable is ITickets {
      * - `burned = false`
      * - `extraData = <Extra data at start of ownership>`
      */
-    function explicitOwnershipOf(
+    function ticketsExplicitOwnershipOf(
         uint256 ticketId
-    ) external view returns (TokenOwnership memory);
-
-    /**
-     * @dev Returns an array of `TokenOwnership` structs at `ticketIds` in order.
-     * See {TicketsQueryable-explicitOwnershipOf}
-     */
-    function explicitOwnershipsOf(
-        uint256[] memory ticketIds
-    ) external view returns (TokenOwnership[] memory);
+    ) external view returns (TicketOwnership memory);
 
     /**
      * @dev Returns an array of ticket IDs owned by `owner`,
@@ -52,12 +44,12 @@ interface ITicketsQueryable is ITickets {
      * (i.e. `start <= ticketId < stop`).
      *
      * This function allows for tickets to be queried if the collection
-     * grows too big for a single call of {TicketsQueryable-tokensOfOwner}.
+     * grows too big for a single call of {TicketsQueryable-ticketsOfOwner}.
      *
      * Requirements:
      * - `start < stop`
      */
-    function tokensOfOwnerIn(
+    function ticketsOfOwnerIn(
         address owner,
         uint256 start,
         uint256 stop
@@ -66,14 +58,14 @@ interface ITicketsQueryable is ITickets {
     /**
      * @dev Returns an array of ticket IDs owned by `owner`.
      *
-     * This function scans the ownership mapping and is O(`totalSupply`) in complexity.
+     * This function scans the ownership mapping and is O(`ticketsTotal`) in complexity.
      * It is meant to be called off-chain.
      *
-     * See {TicketsQueryable-tokensOfOwnerIn} for splitting the scan into
+     * See {TicketsQueryable-ticketsOfOwnerIn} for splitting the scan into
      * multiple smaller scans if the collection is large enough to cause
      * an out-of-gas error (10K collections should be fine).
      */
-    function tokensOfOwner(
+    function ticketsOfOwner(
         address owner
     ) external view returns (uint256[] memory);
 }

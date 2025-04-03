@@ -24,7 +24,7 @@ abstract contract TicketsQueryable is
     function __TicketsQueryable_init_unchained() internal onlyInitializing {}
 
     /**
-     * @dev Returns the `TokenOwnership` struct at `ticketId` without reverting.
+     * @dev Returns the `TicketOwnership` struct at `ticketId` without reverting.
      *
      * If the `ticketId` is out of bounds:
      * - `addr = address(0)`
@@ -44,56 +44,19 @@ abstract contract TicketsQueryable is
      * - `burned = false`
      * - `extraData = <Extra data at start of ownership>`
      */
-    function explicitOwnershipOf(
+    function ticketsExplicitOwnershipOf(
         uint256 ticketId
-    ) public view virtual override returns (TokenOwnership memory ownership) {
+    ) public view virtual override returns (TicketOwnership memory ownership) {
         unchecked {
             if (ticketId >= _startTicketId()) {
-                if (ticketId > _ticketSequentialUpTo())
-                    return _ownershipAt(ticketId);
-
                 if (ticketId < _nextTicketId()) {
                     // If the `ticketId` is within bounds,
                     // scan backwards for the initialized ownership slot.
-                    while (!_ownershipIsInitialized(ticketId)) --ticketId;
-                    return _ownershipAt(ticketId);
+                    while (!_ticketOwnershipIsInitialized(ticketId)) --ticketId;
+                    return _ticketOwnershipAt(ticketId);
                 }
             }
         }
-    }
-
-    /**
-     * @dev Returns an array of `TokenOwnership` structs at `ticketIds` in order.
-     * See {TicketsQueryable-explicitOwnershipOf}
-     */
-    function explicitOwnershipsOf(
-        uint256[] calldata ticketIds
-    ) external view virtual override returns (TokenOwnership[] memory) {
-        TokenOwnership[] memory ownerships;
-        uint256 i = ticketIds.length;
-        assembly {
-            // Grab the free memory pointer.
-            ownerships := mload(0x40)
-            // Store the length.
-            mstore(ownerships, i)
-            // Allocate one word for the length,
-            // `ticketIds.length` words for the pointers.
-            i := shl(5, i) // Multiply `i` by 32.
-            mstore(0x40, add(add(ownerships, 0x20), i))
-        }
-        while (i != 0) {
-            uint256 ticketId;
-            assembly {
-                i := sub(i, 0x20)
-                ticketId := calldataload(add(ticketIds.offset, i))
-            }
-            TokenOwnership memory ownership = explicitOwnershipOf(ticketId);
-            assembly {
-                // Store the pointer of `ownership` in the `ownerships` array.
-                mstore(add(add(ownerships, 0x20), i), ownership)
-            }
-        }
-        return ownerships;
     }
 
     /**
@@ -102,39 +65,36 @@ abstract contract TicketsQueryable is
      * (i.e. `start <= ticketId < stop`).
      *
      * This function allows for tickets to be queried if the collection
-     * grows too big for a single call of {TicketsQueryable-tokensOfOwner}.
+     * grows too big for a single call of {TicketsQueryable-ticketsOfOwner}.
      *
      * Requirements:
      * - `start < stop`
      */
-    function tokensOfOwnerIn(
+    function ticketsOfOwnerIn(
         address owner,
         uint256 start,
         uint256 stop
     ) external view virtual override returns (uint256[] memory) {
-        return _tokensOfOwnerIn(owner, start, stop);
+        return _ticketsOfOwnerIn(owner, start, stop);
     }
 
     /**
      * @dev Returns an array of ticket IDs owned by `owner`.
      *
-     * This function scans the ownership mapping and is O(`totalSupply`) in complexity.
+     * This function scans the ownership mapping and is O(`ticketsTotal`) in complexity.
      * It is meant to be called off-chain.
      *
-     * See {TicketsQueryable-tokensOfOwnerIn} for splitting the scan into
+     * See {TicketsQueryable-ticketsOfOwnerIn} for splitting the scan into
      * multiple smaller scans if the collection is large enough to cause
      * an out-of-gas error (10K collections should be fine).
      */
-    function tokensOfOwner(
+    function ticketsOfOwner(
         address owner
     ) external view virtual override returns (uint256[] memory) {
-        // If spot mints are enabled, full-range scan is disabled.
-        if (_ticketSequentialUpTo() != type(uint256).max)
-            _revert(NotCompatibleWithSpotMints.selector);
         uint256 start = _startTicketId();
         uint256 stop = _nextTicketId();
         uint256[] memory ticketIds;
-        if (start != stop) ticketIds = _tokensOfOwnerIn(owner, start, stop);
+        if (start != stop) ticketIds = _ticketsOfOwnerIn(owner, start, stop);
         return ticketIds;
     }
 
@@ -144,29 +104,26 @@ abstract contract TicketsQueryable is
      * Note that this function is optimized for smaller bytecode size over runtime gas,
      * since it is meant to be called off-chain.
      */
-    function _tokensOfOwnerIn(
+    function _ticketsOfOwnerIn(
         address owner,
         uint256 start,
         uint256 stop
     ) private view returns (uint256[] memory ticketIds) {
         unchecked {
-            if (start >= stop) _revert(InvalidQueryRange.selector);
+            if (start >= stop) _revert(TicketsInvalidQueryRange.selector);
             // Set `start = max(start, _startTicketId())`.
             if (start < _startTicketId()) start = _startTicketId();
             uint256 nextTokenId = _nextTicketId();
-            // If spot mints are enabled, scan all the way until the specified `stop`.
-            uint256 stopLimit = _ticketSequentialUpTo() != type(uint256).max
-                ? stop
-                : nextTokenId;
+            uint256 stopLimit = nextTokenId;
             // Set `stop = min(stop, stopLimit)`.
             if (stop >= stopLimit) stop = stopLimit;
             // Number of tickets to scan.
-            uint256 ticketIdsMaxLength = balanceOf(owner);
+            uint256 ticketIdsMaxLength = ticketsBalanceOf(owner);
             // Set `ticketIdsMaxLength` to zero if the range contains no tickets.
             if (start >= stop) ticketIdsMaxLength = 0;
             // If there are one or more tickets to scan.
             if (ticketIdsMaxLength != 0) {
-                // Set `ticketIdsMaxLength = min(balanceOf(owner), ticketIdsMaxLength)`.
+                // Set `ticketIdsMaxLength = min(ticketsBalanceOf(owner), ticketIdsMaxLength)`.
                 if (stop - start <= ticketIdsMaxLength)
                     ticketIdsMaxLength = stop - start;
                 uint256 m; // Start of available memory.
@@ -178,28 +135,22 @@ abstract contract TicketsQueryable is
                     m := add(ticketIds, shl(5, add(ticketIdsMaxLength, 1)))
                     mstore(0x40, m)
                 }
-                // We need to call `explicitOwnershipOf(start)`,
+                // We need to call `ticketsExplicitOwnershipOf(start)`,
                 // because the slot at `start` may not be initialized.
-                TokenOwnership memory ownership = explicitOwnershipOf(start);
+                TicketOwnership memory ownership = ticketsExplicitOwnershipOf(
+                    start
+                );
                 address currOwnershipAddr;
                 // If the starting slot exists (i.e. not burned),
                 // initialize `currOwnershipAddr`.
-                // `ownership.address` will not be zero,
+                // `ownership.addr` will not be zero,
                 // as `start` is clamped to the valid ticket ID range.
                 if (!ownership.burned) currOwnershipAddr = ownership.addr;
                 uint256 ticketIdsIdx;
                 // Use a do-while, which is slightly more efficient for this case,
                 // as the array will at least contain one element.
                 do {
-                    if (_ticketSequentialUpTo() != type(uint256).max) {
-                        // Skip the remaining unused sequential slots.
-                        if (start == nextTokenId)
-                            start = _ticketSequentialUpTo() + 1;
-                        // Reset `currOwnershipAddr`, as each spot-minted ticket is a batch of one.
-                        if (start > _ticketSequentialUpTo())
-                            currOwnershipAddr = address(0);
-                    }
-                    ownership = _ownershipAt(start); // This implicitly allocates memory.
+                    ownership = _ticketOwnershipAt(start); // This implicitly allocates memory.
                     assembly {
                         switch mload(add(ownership, 0x40))
                         // if `ownership.burned == false`.

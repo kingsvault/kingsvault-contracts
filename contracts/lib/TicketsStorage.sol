@@ -29,9 +29,6 @@ library TicketsStorage {
         // - [128..191] `numberBurned`
         // - [192..255] `aux`
         mapping(address => uint256) _packedAddressData;
-        // The amount of tickets minted above `_ticketSequentialUpTo()`.
-        // We call these spot mints (i.e. non-sequential mints).
-        uint256 _spotMinted;
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.Tickets")) - 1)) & ~bytes32(uint256(0xff))
