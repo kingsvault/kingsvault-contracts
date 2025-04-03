@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Compatible with OpenZeppelin Contracts ^5.0.0
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -8,12 +8,16 @@ import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1
 import {ERC1155BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
 import {ERC1155SupplyUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
 
-//import {ERC2981Upgradeable} from "@openzeppelin/contracts-upgradeable/token/common/ERC2981Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-import {VRFConsumerBaseV2, VRFCoordinatorV2Interface} from "./lib/VRFConsumerBaseV2.sol";
 import {Metadata} from "./lib/Metadata.sol";
+import {VRFConsumerBaseV2, VRFCoordinatorV2Interface} from "./lib/VRFConsumerBaseV2.sol";
+import {Tickets} from "./lib/Tickets.sol";
+import {TicketsQueryable} from "./lib/TicketsQueryable.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @custom:security-contact hi@kingsvault.io
 contract KingsVaultCardsV1 is
@@ -23,21 +27,82 @@ contract KingsVaultCardsV1 is
     ERC1155SupplyUpgradeable,
     OwnableUpgradeable,
     PausableUpgradeable,
+    Metadata,
     VRFConsumerBaseV2,
-    Metadata
+    ReentrancyGuardTransientUpgradeable,
+    Tickets,
+    TicketsQueryable
 {
-    struct ShopStorage {
-        string _name;
+    struct StateStorage {
+        bool _saleStopped;
+        bool _buybackStarted;
+        bool _drawStarted;
+        address _treasury; //?
+        address _usdt;
+        uint256 _totalRaised;
+        uint256 _totalRefRewards;
+        uint256 _refPercentage;
+        uint256[] _prices;
+        uint256[] _bonusTickets;
+        uint256[] _targets;
     }
-    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.shop")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant ShopStorageLocation =
-        0x4f018fdf6283e0e1d6ebb5d4a431134219198655627e2b41f33bc8ba73df0400;
 
-    function _getShopStorage() private pure returns (ShopStorage storage $) {
+    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.state")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant StateStorageLocation =
+        0xbc62856e0c02dd21442d34f1898c6a8d302a7437a9cb81bf178895b7cbe27200;
+
+    function _getStateStorage() private pure returns (StateStorage storage $) {
         assembly {
-            $.slot := ShopStorageLocation
+            $.slot := StateStorageLocation
         }
     }
+
+    struct DrawStorage {
+        address[] _users;
+        address[] _tickets;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.draw")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant DrawStorageLocation =
+        0xe524c1ab749904de8811b3908703254854ab86fe50203701b587cb6b8b7f6000;
+
+    function _getDrawStorage() private pure returns (DrawStorage storage $) {
+        assembly {
+            $.slot := DrawStorageLocation
+        }
+    }
+
+    struct UserData {
+        uint256 _id;
+        address _referrer;
+        uint256 _refRewards;
+    }
+
+    struct UsersStorage {
+        mapping(address userAddress => UserData) _user;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.users")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant UsersStorageLocation =
+        0xbb2ab92c0b02289376da8cc9149aca642b578a5fcf5bd499c2b16904c1464200;
+
+    function _getUsersStorage() private pure returns (UsersStorage storage $) {
+        assembly {
+            $.slot := UsersStorageLocation
+        }
+    }
+
+    event Purchase(
+        address indexed user,
+        uint256 indexed tier,
+        uint256 quantity,
+        uint256 tickets
+    );
+    event Buyback(address indexed user, uint256 amount);
+    event SaleStopped();
+    event BuybackStarted();
+    event DrawStarted();
+    event TradeStarted();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -49,7 +114,8 @@ contract KingsVaultCardsV1 is
         address initialOwner_,
         address royaltyReceiver_,
         uint96 royaltyFee_,
-        address vrfCoordinator_
+        address vrfCoordinator_,
+        address usdt_
     ) public virtual initializer {
         __ERC1155_init("");
         __ERC1155Burnable_init();
@@ -57,8 +123,6 @@ contract KingsVaultCardsV1 is
         __ERC2981_init();
         __Ownable_init(initialOwner_);
         __Pausable_init();
-
-        _pause();
 
         __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
 
@@ -70,7 +134,21 @@ contract KingsVaultCardsV1 is
             royaltyFee_
         );
 
-        ShopStorage storage shop = _getShopStorage();
+        __Tickets_init();
+        __TicketsQueryable_init();
+
+        StateStorage storage state = _getStateStorage();
+        //state._saleStopped = false;
+        //state._buybackStarted = false;
+
+        state._refPercentage = 1000; // 1000/10000 = 0.1 = 10%
+        state._usdt = usdt_;
+        state._prices = [9_990000, 10_990000, 15_990000, 20_990000];
+        state._targets = [75_000_000000, 265_000_000000, 350_000_000000];
+
+        DrawStorage storage draw = _getDrawStorage();
+
+        _pause();
     }
 
     /**
@@ -82,26 +160,244 @@ contract KingsVaultCardsV1 is
         return "1";
     }
 
-    function mint(
-        address account,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) external onlyOwner {
-        _mint(account, id, amount, data);
+    // =============================================================
+    //                    ADDRESS DATA OPERATIONS
+    // =============================================================
+    // ========== Sale section started. ==========
+    //+
+    modifier thenSaleStopped() {
+        StateStorage memory state = _getStateStorage();
+        require(state._saleStopped, "Sale must be stopped");
+        _;
     }
 
-    function mintBatch(
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) external onlyOwner {
-        _mintBatch(to, ids, amounts, data);
+    //+
+    modifier thenSaleNotStopped() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._saleStopped, "Sale stopped");
+        _;
     }
 
-    function startTrade() external onlyOwner {
+    //+
+    function stopSale() external thenSaleNotStopped onlyOwner {
+        StateStorage storage state = _getStateStorage();
+        state._saleStopped = true;
+        emit SaleStopped();
+    }
+
+    //+
+    function buy(
+        uint256 tier,
+        uint256 quantity,
+        address referrer
+    ) external nonReentrant thenSaleNotStopped {
+        _buyTo(_msgSender(), tier, quantity, referrer);
+    }
+
+    //+
+    function buyTo(
+        address userAddress,
+        uint256 tier,
+        uint256 quantity,
+        address referrer
+    ) external {
+        _buyTo(userAddress, tier, quantity, referrer);
+    }
+
+    function _buyTo(
+        address userAddress,
+        uint256 tier,
+        uint256 quantity,
+        address referrer
+    ) private {
+        require(tier >= 0 && tier < 4, "Invalid item type");
+
+        address userAddress = _msgSender();
+
+        StateStorage storage state = _getStateStorage();
+
+        uint256 cost = state._prices[tier] * quantity;
+        require(
+            IERC20(state._usdt).transferFrom(userAddress, address(this), cost),
+            "Payment failed"
+        );
+        state._totalRaised += cost;
+
+        if (referrer != address(0) && referrer != userAddress) {
+            uint256 refRewards = (cost * state._refPercentage) / 10000;
+            state._totalRefRewards += refRewards;
+
+            UsersStorage storage users = _getUsersStorage();
+            users._user[referrer]._refRewards += refRewards;
+            /*require(
+                IERC20(state._usdt).transfer(referrer, refRewards),
+                "Referral transfer failed"
+            );*/
+        } else {
+            /*require(
+                IERC20(state._usdt).transfer(treasury, refRewards),
+                "Treasury transfer failed"
+            );*/
+        }
+
+        for (uint256 i = 0; i < quantity; i++) {
+            uint256 tokenId = _getRandomTokenId(tier);
+            _mint(userAddress, tokenId, 1, "");
+        }
+
+        uint256 newTickets = state._bonusTickets[tier] * quantity;
+        for (uint256 i = 0; i < newTickets; i++) {
+            //participants.push(userAddress);
+            //purchases[userAddress].ticketNumbers.push(participants.length - 1);
+            // TODO event
+        }
+
+        emit Purchase(userAddress, tier, quantity, newTickets);
+        // Если больше 1000 то фиксируем количество билетов
+    }
+
+    //+
+    function _getRandomTokenId(uint256 tier) private view returns (uint256) {
+        uint256 baseId = tier * 10+1;
+        return
+            baseId +
+            (uint256(
+                keccak256(
+                    abi.encodePacked(
+                        blockhash(block.number - 1),
+                        block.timestamp,
+                        _msgSender(),
+                        totalSupply()
+                    )
+                )
+            ) % 10);
+    }
+
+    function giftTickets(
+        address[] calldata users,
+        uint256[] calldata tickets
+    ) external onlyOwner {
+        require(users.length == tickets.length, "Parameters mismatch");
+
+        DrawStorage storage draw = _getDrawStorage();
+        for (uint256 i = 0; i < users.length; ++i) {
+            draw._tickets.push(users[i]);
+            draw._users[users[i]]._tickets.
+            emit BonusTicket(users[i], draw._tickets.length - 1);
+        }
+    }
+
+    // ========== Sale section ended. ==========
+
+    // ========== Buyback section started. ==========
+    //+
+    modifier thenBuybackStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(state._buybackStarted, "Buyback must be started");
+        _;
+    }
+
+    //+
+    modifier thenBuybackNotStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._buybackStarted, "Buyback started");
+        _;
+    }
+
+    //+
+    function startBuyback()
+        external
+        thenSaleStopped
+        thenDrawNotStarted
+        thenBuybackNotStarted
+        onlyOwner
+    {
+        StateStorage storage state = _getStateStorage();
+        state._buybackStarted = true;
+        emit BuybackStarted();
+    }
+
+    //+
+    function buyback() external nonReentrant thenBuybackStarted {
+        _buyback(_msgSender());
+    }
+
+    //+
+    function buybackBatch(
+        address[] calldata users
+    ) external nonReentrant thenBuybackStarted onlyOwner {
+        for (uint256 i = 0; i < users.length; ++i) {
+            _buyback(users[i]);
+        }
+    }
+
+    //+
+    function _buyback(address user) private {
+        StateStorage memory state = _getStateStorage();
+
+        uint256 totalCost = 0;
+        for (uint256 id = 0; id <= 40; ++id) {
+            uint256 balance = balanceOf(user, id);
+            if (balance > 0) {
+                _burn(user, id, balance);
+                totalCost += balance * state._prices[_getTierByTokenId(id)];
+            }
+        }
+
+        require(
+            IERC20(state._usdt).transfer(user, totalCost),
+            "Buyback failed"
+        );
+        emit Buyback(user, totalCost);
+    }
+
+    //+
+    function _getTierByTokenId(uint256 id) private pure returns (uint256) {
+        return (id-1) / 10;
+    }
+
+    // ========== Buyback section ended. ==========
+
+    // ========== Draw section started. ==========
+    //+
+    modifier thenDrawStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(state._drawStarted, "Draw must be started");
+        _;
+    }
+
+    //+
+    modifier thenDrawNotStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._drawStarted, "Draw started");
+        _;
+    }
+
+    //+
+    function startDraw()
+        external
+        thenSaleStopped
+        thenBuybackNotStarted
+        thenDrawNotStarted
+        onlyOwner
+    {
+        StateStorage storage state = _getStateStorage();
+        state._drawStarted = true;
+        emit DrawStarted();
+    }
+
+    // ========== Draw section ended. ==========
+
+    //+
+    function startTrade()
+        external
+        thenSaleStopped
+        thenBuybackNotStarted
+        thenDrawStarted
+        onlyOwner
+    {
         _unpause();
+        emit TradeStarted();
     }
 
     // TODO
