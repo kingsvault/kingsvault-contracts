@@ -59,7 +59,7 @@ contract KingsVaultCardsV1 is
 
     struct DrawStorage {
         address[] _users;
-        address[] _tickets;
+        mapping(address userAddress => bool) _admins;
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.draw")) - 1)) & ~bytes32(uint256(0xff))
@@ -92,6 +92,7 @@ contract KingsVaultCardsV1 is
         }
     }
 
+    event Admin(address indexed user, bool indexed status);
     event Purchase(
         address indexed user,
         uint256 indexed tier,
@@ -147,6 +148,8 @@ contract KingsVaultCardsV1 is
         state._targets = [75_000_000000, 265_000_000000, 350_000_000000];
 
         DrawStorage storage draw = _getDrawStorage();
+        draw._admins[initialOwner_] = true;
+        emit Admin(initialOwner_, true);
 
         _pause();
     }
@@ -160,10 +163,25 @@ contract KingsVaultCardsV1 is
         return "1";
     }
 
-    // =============================================================
-    //                    ADDRESS DATA OPERATIONS
-    // =============================================================
-    // ========== Sale section started. ==========
+    //+
+    modifier onlyAdminOrOwner() {
+        address sender = _msgSender();
+        DrawStorage storage draw = _getDrawStorage();
+        require(
+            draw._admins[sender] || sender == owner(),
+            "Only admin or owner"
+        );
+        _;
+    }
+
+    //+
+    function setAdmin(address userAddress, bool status) external onlyOwner {
+        DrawStorage storage draw = _getDrawStorage();
+        draw._admins[userAddress] = status;
+        emit Admin(userAddress, status);
+    }
+
+    // ========== Sale section ==========
     //+
     modifier thenSaleStopped() {
         StateStorage memory state = _getStateStorage();
@@ -216,17 +234,25 @@ contract KingsVaultCardsV1 is
 
         uint256 cost = state._prices[tier] * quantity;
         require(
-            IERC20(state._usdt).transferFrom(userAddress, address(this), cost),
+            IERC20(state._usdt).transferFrom(_msgSender(), address(this), cost),
             "Payment failed"
         );
         state._totalRaised += cost;
 
+        if (users._user[referrer]._referrer != address(0)) {
+            referrer = users._user[referrer]._referrer;
+        } else {
+            //
+        }
+
+        // TODO Проверить что у пригласившего есть покупки NFT на балансе
         if (referrer != address(0) && referrer != userAddress) {
             uint256 refRewards = (cost * state._refPercentage) / 10000;
             state._totalRefRewards += refRewards;
 
             UsersStorage storage users = _getUsersStorage();
             users._user[referrer]._refRewards += refRewards;
+            // TODO если больше минимальной суммы сборов то можно отправлять.
             /*require(
                 IERC20(state._usdt).transfer(referrer, refRewards),
                 "Referral transfer failed"
@@ -240,7 +266,7 @@ contract KingsVaultCardsV1 is
 
         for (uint256 i = 0; i < quantity; i++) {
             uint256 tokenId = _getRandomTokenId(tier);
-            _mint(userAddress, tokenId, 1, "");
+            _mint(userAddress, tokenId, quantity, "");
         }
 
         uint256 newTickets = state._bonusTickets[tier] * quantity;
@@ -276,22 +302,18 @@ contract KingsVaultCardsV1 is
     function giftTickets(
         address[] calldata users,
         uint256[] calldata tickets
-    ) external onlyOwner {
+    ) external onlyAdminOrOwner {
         require(users.length == tickets.length, "Parameters mismatch");
         // до 1к пользователей нельзя подарить токены.
 
         DrawStorage storage draw = _getDrawStorage();
         for (uint256 i = 0; i < users.length; ++i) {
-            //draw._tickets.push(users[i]);
             //draw._users[users[i]]._tickets.
-            //emit BonusTicket(users[i], draw._tickets.length - 1);
             _mintTickets(users[i], tickets[i]);
         }
     }
 
-    // ========== Sale section ended. ==========
-
-    // ========== Buyback section started. ==========
+    // ========== Buyback section ==========
     //+
     modifier thenBuybackStarted() {
         StateStorage memory state = _getStateStorage();
@@ -327,30 +349,30 @@ contract KingsVaultCardsV1 is
     //+
     function buybackBatch(
         address[] calldata users
-    ) external nonReentrant thenBuybackStarted onlyOwner {
+    ) external nonReentrant thenBuybackStarted onlyAdminOrOwner {
         for (uint256 i = 0; i < users.length; ++i) {
             _buyback(users[i]);
         }
     }
 
     //+
-    function _buyback(address user) private {
+    function _buyback(address userAddress) private {
         StateStorage memory state = _getStateStorage();
 
         uint256 totalCost = 0;
-        for (uint256 id = 0; id <= 40; ++id) {
-            uint256 balance = balanceOf(user, id);
+        for (uint256 id = 1; id <= 40; ++id) {
+            uint256 balance = balanceOf(userAddress, id);
             if (balance > 0) {
-                _burn(user, id, balance);
+                _burn(userAddress, id, balance);
                 totalCost += balance * state._prices[_getTierByTokenId(id)];
             }
         }
 
         require(
-            IERC20(state._usdt).transfer(user, totalCost),
+            IERC20(state._usdt).transfer(userAddress, totalCost),
             "Buyback failed"
         );
-        emit Buyback(user, totalCost);
+        emit Buyback(userAddress, totalCost);
     }
 
     //+
@@ -358,9 +380,7 @@ contract KingsVaultCardsV1 is
         return (id - 1) / 10;
     }
 
-    // ========== Buyback section ended. ==========
-
-    // ========== Draw section started. ==========
+    // ========== Draw section ==========
     //+
     modifier thenDrawStarted() {
         StateStorage memory state = _getStateStorage();
@@ -387,6 +407,9 @@ contract KingsVaultCardsV1 is
         state._drawStarted = true;
         emit DrawStarted();
     }
+
+    // TODO claimRefRewards() {}
+    // TODO withdraw() {}
 
     // ========== Draw section ended. ==========
 
