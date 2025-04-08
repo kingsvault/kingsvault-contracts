@@ -12,8 +12,8 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-import {Metadata} from "./lib/Metadata.sol";
 import {VRFConsumerBaseV2, VRFCoordinatorV2Interface} from "./lib/VRFConsumerBaseV2.sol";
+import {Metadata} from "./lib/Metadata.sol";
 import {Tickets} from "./lib/Tickets.sol";
 import {TicketsQueryable} from "./lib/TicketsQueryable.sol";
 
@@ -33,18 +33,26 @@ contract KingsVaultCardsV1 is
     Tickets,
     TicketsQueryable
 {
+    // ──────────────────────────────────────────────────────────────────────
+    //                               STORAGE
+    // ──────────────────────────────────────────────────────────────────────
+
     struct StateStorage {
-        bool _saleStopped;
-        bool _buybackStarted;
-        bool _drawStarted;
-        address _treasury; //?
-        address _usdt;
-        uint256 _totalRaised;
-        uint256 _totalRefRewards;
-        uint256 _refPercentage;
-        uint256[] _prices;
-        uint256[] _bonusTickets;
-        uint256[] _targets;
+        bool _saleStopped; // if true primary sale is closed
+        bool _buybackStarted; // if true holders can sell cards back
+        bool _drawStarted; // if true lucky draw is active
+        address _teamWallet; // address that receives funds
+        address _usdt; // USDT (6 decimals) payment token
+        uint256 _buyers; // Number of unique buyers
+        uint256 _ticketsForCertificate;
+        uint256 _totalRaised; // total USDT collected from sales
+        uint256 _totalTeamRewards;
+        uint256 _totalRefRewards; // total referral rewards accumulated
+        uint256 _totalRefRewardsClaimed;
+        uint256 _refPercentage; // referral percentage in basis points (1/10_000)
+        uint256[] _prices; // price per tier in USDT (6 decimals)
+        uint256[] _bonusTickets; // tickets granted per tier purchase
+        uint256[] _targets; // funding targets
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.state")) - 1)) & ~bytes32(uint256(0xff))
@@ -57,29 +65,16 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    struct DrawStorage {
-        address[] _users;
-        mapping(address userAddress => bool) _admins;
-    }
-
-    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.draw")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant DrawStorageLocation =
-        0xe524c1ab749904de8811b3908703254854ab86fe50203701b587cb6b8b7f6000;
-
-    function _getDrawStorage() private pure returns (DrawStorage storage $) {
-        assembly {
-            $.slot := DrawStorageLocation
-        }
-    }
-
     struct UserData {
-        uint256 _id;
+        uint256 _spent;
         address _referrer;
         uint256 _refRewards;
     }
 
     struct UsersStorage {
-        mapping(address userAddress => UserData) _user;
+        mapping(address => UserData) _user;
+        mapping(address => bool) _admin;
+        mapping(address => bool) _referrer;
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.users")) - 1)) & ~bytes32(uint256(0xff))
@@ -92,32 +87,57 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    event Admin(address indexed user, bool indexed status);
+    // ──────────────────────────────────────────────────────────────────────
+    //                                EVENTS
+    // ──────────────────────────────────────────────────────────────────────
+
+    event TeamWalletChanged(address indexed prev, address indexed next);
+    event AdminChanged(address indexed wallet, bool indexed status);
+    event ReferrerChanged(address indexed wallet, bool indexed status);
+
+    event SaleStopped();
+    event BuybackStarted();
+    event DrawStarted();
+    event TradeStarted();
+
     event Purchase(
         address indexed user,
         uint256 indexed tier,
         uint256 quantity,
         uint256 tickets
     );
+    event RefRewardsAccrued(
+        address indexed referrer,
+        address indexed referral,
+        uint256 amount
+    );
+    event RefRewardsClaimed(address indexed referrer, uint256 amount);
+
     event Buyback(address indexed user, uint256 amount);
-    event SaleStopped();
-    event BuybackStarted();
-    event DrawStarted();
-    event TradeStarted();
+
+    // ──────────────────────────────────────────────────────────────────────
+    //                              INITIALIZER
+    // ──────────────────────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /**
+     * @dev Contract initializer (replaces constructor for upgradeable pattern).
+     * @param initialOwner_    First owner / admin.
+     * @param usdt_            ERC‑20 USDT token used for payments.
+     * @param teamWallet_      Address that will receive funds.
+     * @param vrfCoordinator_  Chainlink VRF coordinator address.
+     */
     function initialize(
-        string memory uri_,
         address initialOwner_,
-        address royaltyReceiver_,
-        uint96 royaltyFee_,
-        address vrfCoordinator_,
-        address usdt_
+        address usdt_,
+        address teamWallet_,
+        address vrfCoordinator_
     ) public virtual initializer {
+        // -------------------------- OZ initializers ----------------------
         __ERC1155_init("");
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
@@ -125,33 +145,50 @@ contract KingsVaultCardsV1 is
         __Ownable_init(initialOwner_);
         __Pausable_init();
 
-        __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
-
+        // --------------------------- Project libs ------------------------
         __Metadata_init(
-            uri_,
+            "https://kingsvault.github.io/metadata/",
             "Kings Vault Cards",
             "KVC",
-            royaltyReceiver_,
-            royaltyFee_
+            initialOwner_,
+            500
         );
-
         __Tickets_init();
         __TicketsQueryable_init();
+        __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
 
+        // ---------------------------- Storage ----------------------------
         StateStorage storage state = _getStateStorage();
-        //state._saleStopped = false;
-        //state._buybackStarted = false;
 
-        state._refPercentage = 1000; // 1000/10000 = 0.1 = 10%
+        state._refPercentage = 500; // 500/10_000 = 5%
         state._usdt = usdt_;
-        state._prices = [9_990000, 10_990000, 15_990000, 20_990000];
-        state._targets = [75_000_000000, 265_000_000000, 350_000_000000];
+        emit TeamWalletChanged(state._teamWallet, teamWallet_);
+        state._teamWallet = teamWallet_;
 
-        DrawStorage storage draw = _getDrawStorage();
-        draw._admins[initialOwner_] = true;
-        emit Admin(initialOwner_, true);
+        // Price per card tier (18 decimals USDT).
+        state._prices.push(5_000000000000000000);
+        state._prices.push(25_000000000000000000);
+        state._prices.push(88_000000000000000000);
+        state._prices.push(250_000000000000000000);
 
-        _pause();
+        // Bonus tickets per card purchased for each tier.
+        state._bonusTickets.push(5);
+        state._bonusTickets.push(35);
+        state._bonusTickets.push(150);
+        state._bonusTickets.push(500);
+
+        // Funding milestones (18 decimals USDT).
+        state._targets.push(75_000_000000000000000000);
+        state._targets.push(265_000_000000000000000000);
+        state._targets.push(350_000_000000000000000000);
+
+        // --------------------------- Admin set‑up ------------------------
+        UsersStorage storage uStore = _getUsersStorage();
+        uStore._admin[initialOwner_] = true;
+        emit AdminChanged(initialOwner_, true);
+
+        // --------------------------- Initial state -----------------------
+        _pause(); // primary sale is closed until owner calls startTrade().
     }
 
     /**
@@ -164,151 +201,327 @@ contract KingsVaultCardsV1 is
     }
 
     //+
+    function setReferrer(address wallet, bool status) external onlyOwner {
+        UsersStorage storage uStore = _getUsersStorage();
+        uStore._referrer[wallet] = status;
+        emit ReferrerChanged(wallet, status);
+    }
+
+    //+
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
-        DrawStorage storage draw = _getDrawStorage();
+        UsersStorage storage uStore = _getUsersStorage();
         require(
-            draw._admins[sender] || sender == owner(),
-            "Only admin or owner"
+            uStore._admin[sender] || sender == owner(),
+            "KVC: only admin or owner"
         );
         _;
     }
 
-    //+
-    function setAdmin(address userAddress, bool status) external onlyOwner {
-        DrawStorage storage draw = _getDrawStorage();
-        draw._admins[userAddress] = status;
-        emit Admin(userAddress, status);
+    /// @notice Adds or removes an auxiliary admin.
+    function setAdmin(address wallet, bool status) external onlyOwner {
+        UsersStorage storage uStore = _getUsersStorage();
+        uStore._admin[wallet] = status;
+        emit AdminChanged(wallet, status);
     }
 
     // ========== Sale section ==========
     //+
     modifier thenSaleStopped() {
         StateStorage memory state = _getStateStorage();
-        require(state._saleStopped, "Sale must be stopped");
+        require(state._saleStopped, "KVC: sale must be stopped");
         _;
     }
 
     //+
     modifier thenSaleNotStopped() {
         StateStorage memory state = _getStateStorage();
-        require(!state._saleStopped, "Sale stopped");
+        require(!state._saleStopped, "KVC: sale stopped");
         _;
     }
 
-    //+
+    /// @notice Permanently closes primary sale.
     function stopSale() external thenSaleNotStopped onlyOwner {
         StateStorage storage state = _getStateStorage();
         state._saleStopped = true;
         emit SaleStopped();
     }
 
-    //+
-    function buy(
-        uint256 tier,
-        uint256 quantity,
-        address referrer
-    ) external nonReentrant thenSaleNotStopped {
-        _buyTo(_msgSender(), tier, quantity, referrer);
+    //++
+    /**
+     * @notice Purchases `qty` cards of a certain `tier` for `msg.sender`.
+     * @param tier  Card tier (0‑3).
+     * @param qty   Amount of cards to purchase.
+     * @param ref   Optional referrer address.
+     */
+    function buy(uint256 tier, uint256 qty, address ref) external {
+        _buyTo(_msgSender(), tier, qty, ref);
     }
 
-    //+
+    //++
+    /**
+     * @notice Purchases cards for a different address.
+     * @dev No access restriction because payment is made by caller.
+     */
     function buyTo(
-        address userAddress,
+        address to,
         uint256 tier,
-        uint256 quantity,
-        address referrer
+        uint256 qty,
+        address ref
     ) external {
-        _buyTo(userAddress, tier, quantity, referrer);
+        _buyTo(to, tier, qty, ref);
     }
 
+    //++
+    /**
+     * @dev Internal purchase function that handles payment, referral logic,
+     * ticket minting and card minting.
+     */
     function _buyTo(
-        address userAddress,
+        address to,
         uint256 tier,
-        uint256 quantity,
-        address referrer
-    ) private {
-        require(tier >= 0 && tier < 4, "Invalid item type");
+        uint256 qty,
+        address ref
+    ) private nonReentrant thenSaleNotStopped {
+        require(tier < 4, "KVC: invalid tier");
+        require(qty > 0, "KVC: zero qty");
 
         StateStorage storage state = _getStateStorage();
+        UsersStorage storage uStore = _getUsersStorage();
 
-        uint256 cost = state._prices[tier] * quantity;
+        uint256 cost = state._prices[tier] * qty;
         require(
             IERC20(state._usdt).transferFrom(_msgSender(), address(this), cost),
-            "Payment failed"
+            "KVC: payment failed"
         );
+
         state._totalRaised += cost;
-
-        if (users._user[referrer]._referrer != address(0)) {
-            referrer = users._user[referrer]._referrer;
-        } else {
-            //
+        if (uStore._user[to]._spent == 0) {
+            state._buyers++;
         }
 
-        // TODO Проверить что у пригласившего есть покупки NFT на балансе
-        if (referrer != address(0) && referrer != userAddress) {
-            uint256 refRewards = (cost * state._refPercentage) / 10000;
-            state._totalRefRewards += refRewards;
+        uint256 refRewards = _doRefRewards(to, ref, cost);
+        uint256 refRewards = _doTeamRewards(to, ref, cost);
+        uStore._user[to]._spent += cost;
 
-            UsersStorage storage users = _getUsersStorage();
-            users._user[referrer]._refRewards += refRewards;
-            // TODO если больше минимальной суммы сборов то можно отправлять.
-            /*require(
-                IERC20(state._usdt).transfer(referrer, refRewards),
-                "Referral transfer failed"
-            );*/
-        } else {
-            /*require(
-                IERC20(state._usdt).transfer(treasury, refRewards),
-                "Treasury transfer failed"
-            );*/
+        for (uint256 i = 0; i < qty; i++) {
+            _mint(to, _getRandomTokenId(tier), 1, "");
         }
 
-        for (uint256 i = 0; i < quantity; i++) {
-            uint256 tokenId = _getRandomTokenId(tier);
-            _mint(userAddress, tokenId, quantity, "");
+        uint256 newTickets = state._bonusTickets[tier] * qty;
+        _mintTickets(to, newTickets);
+
+        if (state._buyers <= 1000) {
+            state._ticketsForCertificate = _ticketsTotal();
         }
 
-        uint256 newTickets = state._bonusTickets[tier] * quantity;
-        _mintTickets(userAddress, newTickets);
-        //_nextTicketId()
-        //for (uint256 i = 0; i < newTickets; i++) {
-        //participants.push(userAddress);
-        //purchases[userAddress].ticketNumbers.push(participants.length - 1);
-        // TODO event
+        emit Purchase(to, tier, qty, newTickets);
+    }
+
+    //++
+    function _doRefRewards(
+        address buyer,
+        address ref,
+        uint256 cost
+    ) private returns (uint256 refRewards) {
+        StateStorage storage state = _getStateStorage();
+        UsersStorage storage uStore = _getUsersStorage();
+
+        if (uStore._user[buyer]._referrer != address(0)) {
+            ref = uStore._user[buyer]._referrer;
+        }
+
+        if (!uStore._referrer[ref] || ref == buyer) {
+            return 0;
+        }
+
+        if (
+            uStore._user[buyer]._spent == 0 &&
+            uStore._user[buyer]._referrer == address(0)
+        ) {
+            uStore._user[buyer]._referrer = ref;
+        }
+
+        refRewards = (cost * 500) / 10_000;
+        state._totalRefRewards += refRewards;
+
+        emit RefRewardsAccrued(ref, buyer, refRewards);
+        if (state._totalRaised < state._targets[0]) {
+            uStore._user[ref]._refRewards += refRewards;
+            return refRewards;
+        }
+
+        uint256 sendAmount = refRewards;
+        if (uStore._user[ref]._refRewards > 0) {
+            sendAmount += uStore._user[ref]._refRewards;
+            uStore._user[ref]._refRewards = 0;
+        }
+
+        state._totalRefRewardsClaimed += sendAmount;
+        _sendUsdt(ref, sendAmount);
+        emit RefRewardsClaimed(ref, sendAmount);
+
+        return refRewards;
+    }
+
+    function _doTeamRewards(
+        address buyer,
+        uint256 cost,
+        uint256 refRewards
+    ) private returns (uint256 teamRewards) {
+        StateStorage storage state = _getStateStorage();
+        UsersStorage storage uStore = _getUsersStorage();
+
+        teamRewards = ((cost * 2_000) / 10_000) - refRewards;
+        //state._totalRefRewards += refRewards;
+
+        //emit RefRewardsAccrued(ref, buyer, refRewards);
+        //if (state._totalRaised < state._targets[0]) {
+        //    uStore._user[ref]._refRewards += refRewards;
+        //    return refRewards;
         //}
 
-        emit Purchase(userAddress, tier, quantity, newTickets);
-        // Если больше 1000 то фиксируем количество билетов
+        uint256 sendAmount = teamRewards;
+
+        //state._totalRefRewardsClaimed += sendAmount;
+        //_sendUsdt(ref, sendAmount);
+        //emit RefRewardsClaimed(ref, sendAmount);
+
+        //_totalTeamRewards
+
+        return teamRewards;
     }
 
-    //+
+    //++
+    function _sendUsdt(address to, uint256 amount) private {
+        StateStorage memory state = _getStateStorage();
+        require(
+            IERC20(state._usdt).transfer(to, amount),
+            "KVC: USDT transfer failed"
+        );
+    }
+
+    //++
+    /**
+     * @dev Pseudo‑random card ID generator.
+     * For the presale we rely on block attributes
+     * which are sufficiently random for non‑critical use‑cases.
+     */
     function _getRandomTokenId(uint256 tier) private view returns (uint256) {
-        uint256 baseId = tier * 10 + 1;
-        return
-            baseId +
-            (uint256(
-                keccak256(
-                    abi.encodePacked(
-                        blockhash(block.number - 1),
-                        block.timestamp,
-                        _msgSender(),
-                        totalSupply()
-                    )
+        uint256 baseId = tier * 10 + 1; // tiers are grouped by 10 IDs
+        uint256 random = uint256(
+            keccak256(
+                abi.encodePacked(
+                    blockhash(block.number - 1),
+                    block.timestamp,
+                    _msgSender(),
+                    totalSupply()
                 )
-            ) % 10);
+            )
+        ) % 10; // range 0‑9
+        return baseId + random;
     }
 
+    //++
+    modifier thenMilestoneReached() {
+        StateStorage memory state = _getStateStorage();
+        require(
+            state._totalRaised >= state._targets[0],
+            "KVC: min milestone not reached"
+        );
+        _;
+    }
+
+    //++
+    modifier thenMilestoneNotReached() {
+        StateStorage memory state = _getStateStorage();
+        require(
+            state._totalRaised < state._targets[0],
+            "KVC: min milestone reached"
+        );
+        _;
+    }
+
+    //++
+    /// @notice Claims accumulated referral rewards.
+    function claimRefRewards() external thenMilestoneReached {
+        _claimRefRewardsTo(_msgSender());
+    }
+
+    //++
+    function claimRefRewardsBatch(
+        address[] calldata users
+    ) external thenMilestoneReached onlyAdminOrOwner {
+        for (uint256 i = 0; i < users.length; ++i) {
+            _claimRefRewardsTo(users[i]);
+        }
+    }
+
+    //++
+    function _claimRefRewardsTo(address to) private {
+        StateStorage storage state = _getStateStorage();
+        UsersStorage storage uStore = _getUsersStorage();
+
+        uint256 amount = uStore._user[to]._refRewards;
+        if (amount > 0) {
+            uStore._user[to]._refRewards = 0;
+            state._totalRefRewardsClaimed += amount;
+            _sendUsdt(to, amount);
+            emit RefRewardsClaimed(to, amount);
+        }
+    }
+
+    /// Possible available team rewards
+    function _availableTeamRewards()
+        private
+        view
+        returns (uint256 teamRewards)
+    {
+        StateStorage storage state = _getStateStorage();
+        teamRewards =
+            ((state._totalRaised * 2_000) / 10_000) -
+            state._totalRefRewards;
+
+        // ?
+        if (state._totalRaised >= state._targets[2]) {
+            // total raised - car price - ref rewards - team rewards
+            uint256 extra = state._totalRaised -
+                ((state._targets[2] * 8_000) / 10_000) -
+                state._totalRefRewards -
+                teamRewards;
+        }
+    }
+
+    /// @notice Withdraws collected USDT to team wallet.
+    function withdraw() external thenMilestoneReached onlyOwner {
+        StateStorage storage state = _getStateStorage();
+        require(state._teamWallet != address(0), "KVC: zero team wallet");
+
+        // ?
+        uint256 amount = (state._totalRaised * (2_000 - state._refPercentage)) /
+            10_000 -
+            (state._totalRefRewards - state._totalRefRewardsClaimed);
+        //? всего сборов  - минимальный порог, 80%,  ?- реф реварды
+        // _totalWithdrawn
+        //_totalTeamRewards
+
+        _sendUsdt(state._teamWallet, amount);
+    }
+
+    // ?
+    function withdrawCarPrice() external onlyOwner {
+        //
+    }
+
+    /// @notice Gifts tickets to a list of users.
     function giftTickets(
         address[] calldata users,
         uint256[] calldata tickets
     ) external onlyAdminOrOwner {
-        require(users.length == tickets.length, "Parameters mismatch");
-        // до 1к пользователей нельзя подарить токены.
+        require(users.length == tickets.length, "KVC: length mismatch");
 
-        DrawStorage storage draw = _getDrawStorage();
+        //UsersStorage storage uStore = _getUsersStorage();
         for (uint256 i = 0; i < users.length; ++i) {
-            //draw._users[users[i]]._tickets.
             _mintTickets(users[i], tickets[i]);
         }
     }
@@ -328,7 +541,7 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //+
+    /// @notice Enables card buy‑back (irreversible).
     function startBuyback()
         external
         thenSaleStopped
@@ -336,17 +549,18 @@ contract KingsVaultCardsV1 is
         thenBuybackNotStarted
         onlyOwner
     {
+        // thenMilestoneNotReached
         StateStorage storage state = _getStateStorage();
         state._buybackStarted = true;
         emit BuybackStarted();
     }
 
-    //+
+    /// @notice Sells caller's entire card collection back to the contract.
     function buyback() external nonReentrant thenBuybackStarted {
         _buyback(_msgSender());
     }
 
-    //+
+    /// @notice Batch buy‑back helper for admins.
     function buybackBatch(
         address[] calldata users
     ) external nonReentrant thenBuybackStarted onlyAdminOrOwner {
@@ -355,27 +569,26 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+
-    function _buyback(address userAddress) private {
+    /// @dev Internal buy‑back routine.
+    function _buyback(address to) private {
         StateStorage memory state = _getStateStorage();
 
         uint256 totalCost = 0;
         for (uint256 id = 1; id <= 40; ++id) {
-            uint256 balance = balanceOf(userAddress, id);
+            uint256 balance = balanceOf(to, id);
             if (balance > 0) {
-                _burn(userAddress, id, balance);
+                _burn(to, id, balance);
                 totalCost += balance * state._prices[_getTierByTokenId(id)];
             }
         }
 
-        require(
-            IERC20(state._usdt).transfer(userAddress, totalCost),
-            "Buyback failed"
-        );
-        emit Buyback(userAddress, totalCost);
+        if (totalCost > 0) {
+            _sendUsdt(to, totalCost);
+            emit Buyback(to, totalCost);
+        }
     }
 
-    //+
+    /// @dev Returns tier by card ID (each tier spans 10 IDs).
     function _getTierByTokenId(uint256 id) private pure returns (uint256) {
         return (id - 1) / 10;
     }
@@ -401,19 +614,25 @@ contract KingsVaultCardsV1 is
         thenSaleStopped
         thenBuybackNotStarted
         thenDrawNotStarted
+        thenMilestoneReached
         onlyOwner
     {
+        // thenMilestoneReached
         StateStorage storage state = _getStateStorage();
         state._drawStarted = true;
         emit DrawStarted();
     }
 
-    // TODO claimRefRewards() {}
-    // TODO withdraw() {}
+    /// @notice Updates team wallet address.
+    function setTeamWallet(address teamWallet_) external onlyOwner {
+        require(teamWallet_ != address(0), "KVC: zero team wallet");
 
-    // ========== Draw section ended. ==========
+        StateStorage storage state = _getStateStorage();
+        emit TeamWalletChanged(state._teamWallet, teamWallet_);
+        state._teamWallet = teamWallet_;
+    }
 
-    //+
+    /// @notice Opens peer‑to‑peer transfers (secondary market).
     function startTrade()
         external
         thenSaleStopped
@@ -431,12 +650,17 @@ contract KingsVaultCardsV1 is
         uint256[] memory randomWords
     ) internal override {}
 
+    // TODO определить победителей сертификата
+    // state._buyers >= 1000
+    // state._ticketsForCertificate
+
     function supportsInterface(
         bytes4 interfaceId
     ) public view override(ERC1155Upgradeable, Metadata) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
+    /// ?
     function uri(
         uint256 tokenId
     )
@@ -448,6 +672,10 @@ contract KingsVaultCardsV1 is
         return super.uri(tokenId);
     }
 
+    /**
+     * @dev Restricts transfers while the contract is paused unless minting or
+     * ?burning. Prevents secondary market before `startTrade` is called.
+     */
     function _update(
         address from,
         address to,
