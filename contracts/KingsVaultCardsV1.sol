@@ -41,18 +41,20 @@ contract KingsVaultCardsV1 is
         bool _saleStopped; // if true primary sale is closed
         bool _buybackStarted; // if true holders can sell cards back
         bool _drawStarted; // if true lucky draw is active
+        bool _winnersAwarded;
         address _teamWallet; // address that receives funds
-        address _usdt; // USDT (6 decimals) payment token
+        address _usdt; // USDT (18 decimals) payment token
         uint256 _buyers; // Number of unique buyers
         uint256 _ticketsForCertificate;
         uint256 _totalRaised; // total USDT collected from sales
         uint256 _totalTeamRewards;
+        uint256 _totalTeamRewardsClaimed;
         uint256 _totalRefRewards; // total referral rewards accumulated
         uint256 _totalRefRewardsClaimed;
         uint256 _refPercentage; // referral percentage in basis points (1/10_000)
-        uint256[] _prices; // price per tier in USDT (6 decimals)
+        uint256[] _prices; // price per tier in USDT (18 decimals)
         uint256[] _bonusTickets; // tickets granted per tier purchase
-        uint256[] _targets; // funding targets
+        uint256[] _targets; // funding targets in USDT (18 decimals)
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.state")) - 1)) & ~bytes32(uint256(0xff))
@@ -92,8 +94,8 @@ contract KingsVaultCardsV1 is
     // ──────────────────────────────────────────────────────────────────────
 
     event TeamWalletChanged(address indexed prev, address indexed next);
-    event AdminChanged(address indexed wallet, bool indexed status);
-    event ReferrerChanged(address indexed wallet, bool indexed status);
+    event AdminChanged(address indexed admin, bool indexed status);
+    event ReferrerChanged(address indexed referrer, bool indexed status);
 
     event SaleStopped();
     event BuybackStarted();
@@ -108,12 +110,19 @@ contract KingsVaultCardsV1 is
     );
     event RefRewardsAccrued(
         address indexed referrer,
-        address indexed referral,
+        address indexed user,
         uint256 amount
     );
     event RefRewardsClaimed(address indexed referrer, uint256 amount);
+    event TeamRewardsAccrued(
+        address indexed team,
+        address indexed user,
+        uint256 amount
+    );
+    event TeamRewardsClaimed(address indexed team, uint256 amount);
 
     event Buyback(address indexed user, uint256 amount);
+    event Winner(address indexed winner, uint256 indexed tokenId);
 
     // ──────────────────────────────────────────────────────────────────────
     //                              INITIALIZER
@@ -160,10 +169,13 @@ contract KingsVaultCardsV1 is
         // ---------------------------- Storage ----------------------------
         StateStorage storage state = _getStateStorage();
 
-        state._refPercentage = 500; // 500/10_000 = 5%
         state._usdt = usdt_;
+
+        require(teamWallet_ != address(0), "KVC: zero team wallet");
         emit TeamWalletChanged(state._teamWallet, teamWallet_);
         state._teamWallet = teamWallet_;
+
+        state._refPercentage = 500; // 500/10_000 = 5%
 
         // Price per card tier (18 decimals USDT).
         state._prices.push(5_000000000000000000);
@@ -200,14 +212,35 @@ contract KingsVaultCardsV1 is
         return "1";
     }
 
-    //+
-    function setReferrer(address wallet, bool status) external onlyOwner {
-        UsersStorage storage uStore = _getUsersStorage();
-        uStore._referrer[wallet] = status;
-        emit ReferrerChanged(wallet, status);
+    //+++
+    function getState() external view returns (StateStorage memory) {
+        StateStorage memory state = _getStateStorage();
+        return state;
     }
 
-    //+
+    //+++
+    function getUser(
+        address wallet
+    )
+        external
+        view
+        returns (
+            uint256 _spent,
+            address _referrer,
+            uint256 _refRewards,
+            uint256 _tickets
+        )
+    {
+        UsersStorage storage uStore = _getUsersStorage();
+        return (
+            uStore._user[wallet]._spent,
+            uStore._user[wallet]._referrer,
+            uStore._user[wallet]._refRewards,
+            ticketsBalanceOf(wallet)
+        );
+    }
+
+    //+++
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
         UsersStorage storage uStore = _getUsersStorage();
@@ -218,6 +251,7 @@ contract KingsVaultCardsV1 is
         _;
     }
 
+    //+++
     /// @notice Adds or removes an auxiliary admin.
     function setAdmin(address wallet, bool status) external onlyOwner {
         UsersStorage storage uStore = _getUsersStorage();
@@ -225,21 +259,41 @@ contract KingsVaultCardsV1 is
         emit AdminChanged(wallet, status);
     }
 
+    //+++
+    function isAdmin(address wallet) external view returns (bool) {
+        UsersStorage storage uStore = _getUsersStorage();
+        return uStore._admin[wallet];
+    }
+
+    //+++
+    function setReferrer(address wallet, bool status) external onlyOwner {
+        UsersStorage storage uStore = _getUsersStorage();
+        uStore._referrer[wallet] = status;
+        emit ReferrerChanged(wallet, status);
+    }
+
+    //+++
+    function isReferrer(address wallet) external view returns (bool) {
+        UsersStorage storage uStore = _getUsersStorage();
+        return uStore._referrer[wallet];
+    }
+
     // ========== Sale section ==========
-    //+
+    //+++
     modifier thenSaleStopped() {
         StateStorage memory state = _getStateStorage();
         require(state._saleStopped, "KVC: sale must be stopped");
         _;
     }
 
-    //+
+    //+++
     modifier thenSaleNotStopped() {
         StateStorage memory state = _getStateStorage();
         require(!state._saleStopped, "KVC: sale stopped");
         _;
     }
 
+    //+++
     /// @notice Permanently closes primary sale.
     function stopSale() external thenSaleNotStopped onlyOwner {
         StateStorage storage state = _getStateStorage();
@@ -247,7 +301,7 @@ contract KingsVaultCardsV1 is
         emit SaleStopped();
     }
 
-    //++
+    //+++
     /**
      * @notice Purchases `qty` cards of a certain `tier` for `msg.sender`.
      * @param tier  Card tier (0‑3).
@@ -258,7 +312,7 @@ contract KingsVaultCardsV1 is
         _buyTo(_msgSender(), tier, qty, ref);
     }
 
-    //++
+    //+++
     /**
      * @notice Purchases cards for a different address.
      * @dev No access restriction because payment is made by caller.
@@ -272,7 +326,7 @@ contract KingsVaultCardsV1 is
         _buyTo(to, tier, qty, ref);
     }
 
-    //++
+    //+++
     /**
      * @dev Internal purchase function that handles payment, referral logic,
      * ticket minting and card minting.
@@ -295,13 +349,13 @@ contract KingsVaultCardsV1 is
             "KVC: payment failed"
         );
 
-        state._totalRaised += cost;
         if (uStore._user[to]._spent == 0) {
             state._buyers++;
         }
 
+        state._totalRaised += cost;
         uint256 refRewards = _doRefRewards(to, ref, cost);
-        uint256 refRewards = _doTeamRewards(to, ref, cost);
+        _doTeamRewards(to, cost, refRewards);
         uStore._user[to]._spent += cost;
 
         for (uint256 i = 0; i < qty; i++) {
@@ -318,7 +372,7 @@ contract KingsVaultCardsV1 is
         emit Purchase(to, tier, qty, newTickets);
     }
 
-    //++
+    //+++
     function _doRefRewards(
         address buyer,
         address ref,
@@ -342,7 +396,7 @@ contract KingsVaultCardsV1 is
             uStore._user[buyer]._referrer = ref;
         }
 
-        refRewards = (cost * 500) / 10_000;
+        refRewards = (cost * 500) / 10_000; // 5%
         state._totalRefRewards += refRewards;
 
         emit RefRewardsAccrued(ref, buyer, refRewards);
@@ -364,6 +418,7 @@ contract KingsVaultCardsV1 is
         return refRewards;
     }
 
+    //+++
     function _doTeamRewards(
         address buyer,
         uint256 cost,
@@ -372,27 +427,38 @@ contract KingsVaultCardsV1 is
         StateStorage storage state = _getStateStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
-        teamRewards = ((cost * 2_000) / 10_000) - refRewards;
-        //state._totalRefRewards += refRewards;
+        address teamWallet = state._teamWallet;
 
-        //emit RefRewardsAccrued(ref, buyer, refRewards);
-        //if (state._totalRaised < state._targets[0]) {
-        //    uStore._user[ref]._refRewards += refRewards;
-        //    return refRewards;
-        //}
+        if (state._totalRaised < state._targets[2]) {
+            teamRewards = ((cost * 2_000) / 10_000) - refRewards; // 20% [- 5%]
+        } else if ((state._totalRaised - cost) < state._targets[2]) {
+            uint256 extra = state._totalRaised - state._targets[2];
+            uint256 targetDelta = cost - extra;
+            teamRewards = ((targetDelta * 2_000) / 10_000) + extra - refRewards;
+        } else {
+            teamRewards = cost - refRewards; // 100% [- 5%]
+        }
+
+        emit TeamRewardsAccrued(teamWallet, buyer, teamRewards);
+        if (state._totalRaised < state._targets[0]) {
+            state._totalTeamRewards += teamRewards;
+            return teamRewards;
+        }
 
         uint256 sendAmount = teamRewards;
+        if (state._totalTeamRewards > 0) {
+            sendAmount += state._totalTeamRewards;
+            state._totalTeamRewards = 0;
+        }
 
-        //state._totalRefRewardsClaimed += sendAmount;
-        //_sendUsdt(ref, sendAmount);
-        //emit RefRewardsClaimed(ref, sendAmount);
-
-        //_totalTeamRewards
+        state._totalTeamRewardsClaimed += sendAmount;
+        _sendUsdt(teamWallet, sendAmount);
+        emit TeamRewardsClaimed(teamWallet, sendAmount);
 
         return teamRewards;
     }
 
-    //++
+    //+++
     function _sendUsdt(address to, uint256 amount) private {
         StateStorage memory state = _getStateStorage();
         require(
@@ -401,14 +467,14 @@ contract KingsVaultCardsV1 is
         );
     }
 
-    //++
+    //+++
     /**
      * @dev Pseudo‑random card ID generator.
      * For the presale we rely on block attributes
      * which are sufficiently random for non‑critical use‑cases.
      */
     function _getRandomTokenId(uint256 tier) private view returns (uint256) {
-        uint256 baseId = tier * 10 + 1; // tiers are grouped by 10 IDs
+        uint256 baseId = tier * 3 + 1; // tiers are grouped by 3 IDs
         uint256 random = uint256(
             keccak256(
                 abi.encodePacked(
@@ -418,11 +484,19 @@ contract KingsVaultCardsV1 is
                     totalSupply()
                 )
             )
-        ) % 10; // range 0‑9
+        ) % 3; // range 0‑2
         return baseId + random;
     }
 
-    //++
+    //+++
+    function _getWinnerTokenId() private view returns (unit256) {
+        StateStorage memory state = _getStateStorage();
+        if (state._totalRaised >= state._targets[2]) return 16;
+        else if (state._totalRaised >= state._targets[1]) return 15;
+        else return 14;
+    }
+
+    //+++
     modifier thenMilestoneReached() {
         StateStorage memory state = _getStateStorage();
         require(
@@ -432,7 +506,7 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //++
+    //+++
     modifier thenMilestoneNotReached() {
         StateStorage memory state = _getStateStorage();
         require(
@@ -442,13 +516,13 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //++
+    //+++
     /// @notice Claims accumulated referral rewards.
     function claimRefRewards() external thenMilestoneReached {
         _claimRefRewardsTo(_msgSender());
     }
 
-    //++
+    //+++
     function claimRefRewardsBatch(
         address[] calldata users
     ) external thenMilestoneReached onlyAdminOrOwner {
@@ -457,7 +531,7 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //++
+    //+++
     function _claimRefRewardsTo(address to) private {
         StateStorage storage state = _getStateStorage();
         UsersStorage storage uStore = _getUsersStorage();
@@ -471,158 +545,7 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    /// Possible available team rewards
-    function _availableTeamRewards()
-        private
-        view
-        returns (uint256 teamRewards)
-    {
-        StateStorage storage state = _getStateStorage();
-        teamRewards =
-            ((state._totalRaised * 2_000) / 10_000) -
-            state._totalRefRewards;
-
-        // ?
-        if (state._totalRaised >= state._targets[2]) {
-            // total raised - car price - ref rewards - team rewards
-            uint256 extra = state._totalRaised -
-                ((state._targets[2] * 8_000) / 10_000) -
-                state._totalRefRewards -
-                teamRewards;
-        }
-    }
-
-    /// @notice Withdraws collected USDT to team wallet.
-    function withdraw() external thenMilestoneReached onlyOwner {
-        StateStorage storage state = _getStateStorage();
-        require(state._teamWallet != address(0), "KVC: zero team wallet");
-
-        // ?
-        uint256 amount = (state._totalRaised * (2_000 - state._refPercentage)) /
-            10_000 -
-            (state._totalRefRewards - state._totalRefRewardsClaimed);
-        //? всего сборов  - минимальный порог, 80%,  ?- реф реварды
-        // _totalWithdrawn
-        //_totalTeamRewards
-
-        _sendUsdt(state._teamWallet, amount);
-    }
-
-    // ?
-    function withdrawCarPrice() external onlyOwner {
-        //
-    }
-
-    /// @notice Gifts tickets to a list of users.
-    function giftTickets(
-        address[] calldata users,
-        uint256[] calldata tickets
-    ) external onlyAdminOrOwner {
-        require(users.length == tickets.length, "KVC: length mismatch");
-
-        //UsersStorage storage uStore = _getUsersStorage();
-        for (uint256 i = 0; i < users.length; ++i) {
-            _mintTickets(users[i], tickets[i]);
-        }
-    }
-
-    // ========== Buyback section ==========
-    //+
-    modifier thenBuybackStarted() {
-        StateStorage memory state = _getStateStorage();
-        require(state._buybackStarted, "Buyback must be started");
-        _;
-    }
-
-    //+
-    modifier thenBuybackNotStarted() {
-        StateStorage memory state = _getStateStorage();
-        require(!state._buybackStarted, "Buyback started");
-        _;
-    }
-
-    /// @notice Enables card buy‑back (irreversible).
-    function startBuyback()
-        external
-        thenSaleStopped
-        thenDrawNotStarted
-        thenBuybackNotStarted
-        onlyOwner
-    {
-        // thenMilestoneNotReached
-        StateStorage storage state = _getStateStorage();
-        state._buybackStarted = true;
-        emit BuybackStarted();
-    }
-
-    /// @notice Sells caller's entire card collection back to the contract.
-    function buyback() external nonReentrant thenBuybackStarted {
-        _buyback(_msgSender());
-    }
-
-    /// @notice Batch buy‑back helper for admins.
-    function buybackBatch(
-        address[] calldata users
-    ) external nonReentrant thenBuybackStarted onlyAdminOrOwner {
-        for (uint256 i = 0; i < users.length; ++i) {
-            _buyback(users[i]);
-        }
-    }
-
-    /// @dev Internal buy‑back routine.
-    function _buyback(address to) private {
-        StateStorage memory state = _getStateStorage();
-
-        uint256 totalCost = 0;
-        for (uint256 id = 1; id <= 40; ++id) {
-            uint256 balance = balanceOf(to, id);
-            if (balance > 0) {
-                _burn(to, id, balance);
-                totalCost += balance * state._prices[_getTierByTokenId(id)];
-            }
-        }
-
-        if (totalCost > 0) {
-            _sendUsdt(to, totalCost);
-            emit Buyback(to, totalCost);
-        }
-    }
-
-    /// @dev Returns tier by card ID (each tier spans 10 IDs).
-    function _getTierByTokenId(uint256 id) private pure returns (uint256) {
-        return (id - 1) / 10;
-    }
-
-    // ========== Draw section ==========
-    //+
-    modifier thenDrawStarted() {
-        StateStorage memory state = _getStateStorage();
-        require(state._drawStarted, "Draw must be started");
-        _;
-    }
-
-    //+
-    modifier thenDrawNotStarted() {
-        StateStorage memory state = _getStateStorage();
-        require(!state._drawStarted, "Draw started");
-        _;
-    }
-
-    //+
-    function startDraw()
-        external
-        thenSaleStopped
-        thenBuybackNotStarted
-        thenDrawNotStarted
-        thenMilestoneReached
-        onlyOwner
-    {
-        // thenMilestoneReached
-        StateStorage storage state = _getStateStorage();
-        state._drawStarted = true;
-        emit DrawStarted();
-    }
-
+    //+++
     /// @notice Updates team wallet address.
     function setTeamWallet(address teamWallet_) external onlyOwner {
         require(teamWallet_ != address(0), "KVC: zero team wallet");
@@ -632,6 +555,256 @@ contract KingsVaultCardsV1 is
         state._teamWallet = teamWallet_;
     }
 
+    //+++
+    /// @notice Withdraws collected USDT to team wallet.
+    function withdraw() external thenMilestoneReached onlyOwner {
+        StateStorage storage state = _getStateStorage();
+
+        address teamWallet = state._teamWallet;
+
+        uint256 refRewards = state._totalRefRewardsClaimed +
+            state._totalRefRewards;
+
+        uint256 carPrice = _getCarPrice();
+        uint256 extra = 0;
+        if (state._saleStopped) {
+            extra = state._totalRaised - carPrice;
+        }
+
+        uint256 sendAmount = ((carPrice * 2_000) / 10_000) +
+            extra -
+            refRewards -
+            state._totalTeamRewardsClaimed;
+
+        state._totalTeamRewards = 0;
+        state._totalTeamRewardsClaimed += sendAmount;
+        _sendUsdt(teamWallet, sendAmount);
+        emit TeamRewardsClaimed(teamWallet, sendAmount);
+    }
+
+    function _getCarPrice() private view returns (uint256 carPrice) {
+        StateStorage memory state = _getStateStorage();
+
+        if (state._totalRaised >= state._targets[2]) {
+            carPrice = state._targets[2];
+        } else if (state._totalRaised >= state._targets[1]) {
+            carPrice = state._targets[1];
+        } else if (state._totalRaised >= state._targets[0]) {
+            carPrice = state._targets[0];
+        }
+    }
+
+    //+++
+    /// @notice Gifts tickets to a list of users.
+    function giftTickets(
+        address[] calldata users,
+        uint256[] calldata tickets
+    ) external onlyAdminOrOwner {
+        require(users.length == tickets.length, "KVC: length mismatch");
+        for (uint256 i = 0; i < users.length; ++i) {
+            _mintTickets(users[i], tickets[i]);
+        }
+    }
+
+    // ========== Buyback section ==========
+    //+++
+    modifier thenBuybackStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(state._buybackStarted, "Buyback must be started");
+        _;
+    }
+
+    //+++
+    modifier thenBuybackNotStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._buybackStarted, "Buyback started");
+        _;
+    }
+
+    //+++
+    /// @notice Enables card buy‑back (irreversible).
+    function startBuyback()
+        external
+        thenSaleStopped
+        thenDrawNotStarted
+        thenBuybackNotStarted
+        thenMilestoneNotReached
+        onlyOwner
+    {
+        StateStorage storage state = _getStateStorage();
+        state._buybackStarted = true;
+        emit BuybackStarted();
+    }
+
+    //+++
+    /// @notice Sells caller's entire card collection back to the contract.
+    function buyback() external nonReentrant thenBuybackStarted {
+        _buyback(_msgSender());
+    }
+
+    //+++
+    /// @notice Batch buy‑back helper for admins.
+    function buybackBatch(
+        address[] calldata users
+    ) external nonReentrant thenBuybackStarted onlyAdminOrOwner {
+        for (uint256 i = 0; i < users.length; ++i) {
+            _buyback(users[i]);
+        }
+    }
+
+    //+++
+    /// @dev Internal buy‑back routine.
+    function _buyback(address to) private {
+        StateStorage memory state = _getStateStorage();
+
+        uint256 total = 0;
+        for (uint256 tokenId = 1; tokenId <= 12; ++tokenId) {
+            uint256 balance = balanceOf(to, tokenId);
+            if (balance > 0) {
+                _burn(to, tokenId, balance);
+                total += state._prices[_getTierByTokenId(tokenId)] * balance;
+            }
+        }
+
+        if (total > 0) {
+            _sendUsdt(to, total);
+            emit Buyback(to, total);
+        }
+    }
+
+    //+++
+    /// @dev Returns tier by card ID (each tier spans 3 IDs).
+    function _getTierByTokenId(uint256 tokenId) private pure returns (uint256) {
+        return (tokenId - 1) / 3;
+    }
+
+    // ========== Draw section ==========
+    //+++
+    modifier thenDrawStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(state._drawStarted, "KVC: draw must be started");
+        _;
+    }
+
+    //+++
+    modifier thenDrawNotStarted() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._drawStarted, "KVC: draw started");
+        _;
+    }
+
+    //+++
+    function startDraw()
+        external
+        thenSaleStopped
+        thenBuybackNotStarted
+        thenDrawNotStarted
+        thenMilestoneReached
+        onlyOwner
+    {
+        StateStorage storage state = _getStateStorage();
+        state._drawStarted = true;
+        emit DrawStarted();
+    }
+
+    //+++
+    modifier thenWinnersAwarded() {
+        StateStorage memory state = _getStateStorage();
+        require(state._winnersAwarded, "KVC: winners not awarded");
+        _;
+    }
+
+    //+++
+    modifier thenWinnersNotAwarded() {
+        StateStorage memory state = _getStateStorage();
+        require(!state._winnersAwarded, "KVC: winners awarded");
+        _;
+    }
+
+    //+++
+    function selectWinners(
+        bytes32 keyHash,
+        uint64 subscriptionId,
+        uint256 requestConfirmations,
+        uint256 callbackGasLimit
+    ) external thenDrawStarted thenWinnersNotAwarded onlyOwner {
+        StateStorage memory state = _getStateStorage();
+
+        VRFCoordinatorV2Interface(getVrfCoordinator()).requestRandomWords(
+            keyHash,
+            subscriptionId,
+            requestConfirmations,
+            callbackGasLimit,
+            1
+        );
+    }
+
+    function burnPrize() external nonReentrant thenWinnersAwarded {
+        address sender = _msgSender();
+        uint256 tokenId = _getWinnerTokenId();
+        uint256 balance = balanceOf(sender, tokenId);
+        require(balance > 0, "Not a winner");
+
+        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
+        _burn(sender, tokenId, balance);
+        _sendUsdt(sender, refund);
+
+        // TODO event
+    }
+
+    function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
+        StateStorage memory state = _getStateStorage();
+        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
+        _sendUsdt(state._teamWallet, sendAmount);
+
+        // TODO event
+    }
+
+    //+++
+    function _fulfillRandomWords(
+        uint256 /*requestId*/,
+        uint256[] memory randomWords
+    ) internal override thenDrawStarted thenWinnersNotAwarded {
+        StateStorage storage state = _getStateStorage();
+
+        address[] memory winners = new address[](4);
+        uint256 winnersCounter = 0;
+        uint256 iteration = 0;
+        uint256 randomWord = randomWords[0];
+        while (winnersCounter < 4) {
+            uint256 winnerTokenId = winnersCounter < 3
+                ? 13
+                : _getWinnerTokenId();
+            uint256 divider = winnersCounter < 3
+                ? state._ticketsForCertificate
+                : _ticketsTotal();
+            uint256 ticketId = uint256(
+                keccak256(abi.encodePacked(randomWord, iteration))
+            ) % divider;
+            address nextWinner = ticketsOwnerOf(ticketId);
+            if (!_contains(winners, nextWinner)) {
+                winners[winnersCounter] = nextWinner;
+                _mint(nextWinner, winnerTokenId, 1, "");
+                emit Winner(winner, winnerTokenId);
+                winnersCounter++;
+            }
+            iteration++;
+        }
+        state._winnersAwarded = true;
+    }
+
+    //+
+    function _contains(
+        address[] memory list,
+        address target
+    ) private pure returns (bool) {
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] == target) return true;
+        }
+        return false;
+    }
+
+    //+++
     /// @notice Opens peer‑to‑peer transfers (secondary market).
     function startTrade()
         external
@@ -644,23 +817,7 @@ contract KingsVaultCardsV1 is
         emit TradeStarted();
     }
 
-    // TODO
-    function fulfillRandomWords(
-        uint256 requestId,
-        uint256[] memory randomWords
-    ) internal override {}
-
-    // TODO определить победителей сертификата
-    // state._buyers >= 1000
-    // state._ticketsForCertificate
-
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view override(ERC1155Upgradeable, Metadata) returns (bool) {
-        return super.supportsInterface(interfaceId);
-    }
-
-    /// ?
+    //+++
     function uri(
         uint256 tokenId
     )
@@ -672,26 +829,42 @@ contract KingsVaultCardsV1 is
         return super.uri(tokenId);
     }
 
-    /**
-     * @dev Restricts transfers while the contract is paused unless minting or
-     * ?burning. Prevents secondary market before `startTrade` is called.
-     */
+    //+++
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(ERC1155Upgradeable, Metadata) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    //+++
     function _update(
         address from,
         address to,
         uint256[] memory ids,
         uint256[] memory values
     ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) {
-        if (from == address(0)) {
-            // Then Mint
-        } else {
-            if (to == address(0)) {
-                // Then Burn
-                // TODO Check if not Winner burn win token ids
-                return super._update(from, to, ids, values);
-            }
-            _requireNotPaused();
-        }
-        return super._update(from, to, ids, values);
+        super._update(from, to, ids, values);
+    }
+
+    //+++
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 value,
+        bytes memory data
+    ) public override whenNotPaused {
+        super.safeTransferFrom(from, to, id, value, data);
+    }
+
+    //+++
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) public override whenNotPaused {
+        super.safeBatchTransferFrom(from, to, ids, values, data);
     }
 }

@@ -80,7 +80,7 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
      * @param requestId The unique identifier for the randomness request.
      * @param randomWords The array of random words provided by Chainlink VRF.
      */
-    function fulfillRandomWords(
+    function _fulfillRandomWords(
         uint256 requestId,
         uint256[] memory randomWords
     ) internal virtual;
@@ -100,6 +100,6 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         if (sender != vrfCoordinator) {
             revert OnlyCoordinatorCanFulfill(sender, vrfCoordinator);
         }
-        fulfillRandomWords(requestId, randomWords);
+        _fulfillRandomWords(requestId, randomWords);
     }
 }
