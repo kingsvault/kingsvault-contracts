@@ -121,8 +121,15 @@ contract KingsVaultCardsV1 is
     );
     event TeamRewardsClaimed(address indexed team, uint256 amount);
 
-    event Buyback(address indexed user, uint256 amount);
     event Winner(address indexed winner, uint256 indexed tokenId);
+    event PrizeCashed(
+        address indexed winner,
+        uint256 indexed tokenId,
+        uint256 amount
+    );
+    event PrizeWithdrawn(address indexed team, uint256 amount);
+
+    event Buyback(address indexed user, uint256 amount);
 
     // ──────────────────────────────────────────────────────────────────────
     //                              INITIALIZER
@@ -710,17 +717,20 @@ contract KingsVaultCardsV1 is
 
         uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
         _burn(sender, tokenId, balance);
-        _sendUsdt(sender, refund);
+        _sendUsdt(sender, sendAmount);
 
-        emit PrizeBurned(sender, tokenId, balance);
+        emit PrizeCashed(sender, tokenId, sendAmount);
     }
 
     function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
         StateStorage memory state = _getStateStorage();
-        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
-        _sendUsdt(state._teamWallet, sendAmount);
 
-        emit PrizeBurned(sender, tokenId, balance);
+        address teamWallet = state._teamWallet;
+
+        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
+        _sendUsdt(teamWallet, sendAmount);
+
+        emit PrizeWithdrawn(teamWallet, sendAmount);
     }
 
     function _fulfillRandomWords(
