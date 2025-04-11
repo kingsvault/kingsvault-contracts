@@ -989,7 +989,7 @@ contract KingsVaultCardsV1 is
     ) internal override thenDrawStarted thenWinnersNotAwarded {
         StateStorage storage state = _getStateStorage();
 
-        address;
+        address[] memory winners = new address[](4);
         uint256 winnersCounter = 0;
         uint256 iteration = 0;
         uint256 randomWord = randomWords[0];
