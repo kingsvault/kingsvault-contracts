@@ -219,7 +219,7 @@ contract KingsVaultCardsV1 is
         return "1";
     }
 
-    function getState() external view returns (StateStorage memory) {
+    function getState() external pure returns (StateStorage memory) {
         StateStorage memory state = _getStateStorage();
         return state;
     }
@@ -417,7 +417,6 @@ contract KingsVaultCardsV1 is
         uint256 refRewards
     ) private returns (uint256 teamRewards) {
         StateStorage storage state = _getStateStorage();
-        UsersStorage storage uStore = _getUsersStorage();
 
         address teamWallet = state._teamWallet;
 
@@ -478,7 +477,7 @@ contract KingsVaultCardsV1 is
         return baseId + random;
     }
 
-    function _getWinnerTokenId() private view returns (unit256) {
+    function _getWinnerTokenId() private pure returns (uint256) {
         StateStorage memory state = _getStateStorage();
         if (state._totalRaised >= state._targets[2]) return 16;
         else if (state._totalRaised >= state._targets[1]) return 15;
@@ -564,7 +563,7 @@ contract KingsVaultCardsV1 is
         emit TeamRewardsClaimed(teamWallet, sendAmount);
     }
 
-    function _getCarPrice() private view returns (uint256 carPrice) {
+    function _getCarPrice() private pure returns (uint256 carPrice) {
         StateStorage memory state = _getStateStorage();
 
         if (state._totalRaised >= state._targets[2]) {
@@ -695,11 +694,9 @@ contract KingsVaultCardsV1 is
     function selectWinners(
         bytes32 keyHash,
         uint64 subscriptionId,
-        uint256 requestConfirmations,
-        uint256 callbackGasLimit
+        uint16 requestConfirmations,
+        uint32 callbackGasLimit
     ) external thenDrawStarted thenWinnersNotAwarded onlyOwner {
-        StateStorage memory state = _getStateStorage();
-
         VRFCoordinatorV2Interface(getVrfCoordinator()).requestRandomWords(
             keyHash,
             subscriptionId,
@@ -757,7 +754,7 @@ contract KingsVaultCardsV1 is
             if (!_contains(winners, nextWinner)) {
                 winners[winnersCounter] = nextWinner;
                 _mint(nextWinner, winnerTokenId, 1, "");
-                emit Winner(winner, winnerTokenId);
+                emit Winner(nextWinner, winnerTokenId);
                 winnersCounter++;
             }
             iteration++;
