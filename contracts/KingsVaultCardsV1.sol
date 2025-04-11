@@ -235,7 +235,6 @@ contract KingsVaultCardsV1 is
         __ERC1155_init("");
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
-        __ERC2981_init();
         __Ownable_init(initialOwner_);
         __Pausable_init();
 
@@ -243,9 +242,7 @@ contract KingsVaultCardsV1 is
         __Metadata_init(
             "https://kingsvault.github.io/metadata/",
             "Kings Vault Cards",
-            "KVC",
-            initialOwner_,
-            500
+            "KVC"
         );
         __Tickets_init();
         __TicketsQueryable_init();
@@ -1064,15 +1061,6 @@ contract KingsVaultCardsV1 is
         returns (string memory)
     {
         return super.uri(tokenId);
-    }
-
-    /**
-     * @dev Indicates which interfaces this contract supports (ERC165 standard).
-     */
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view override(ERC1155Upgradeable, Metadata) returns (bool) {
-        return super.supportsInterface(interfaceId);
     }
 
     /**

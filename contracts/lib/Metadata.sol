@@ -6,7 +6,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
 
-import {ERC2981Upgradeable} from "@openzeppelin/contracts-upgradeable/token/common/ERC2981Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
@@ -20,7 +19,6 @@ import {StorageSlot} from "@openzeppelin/contracts/utils/StorageSlot.sol";
 abstract contract Metadata is
     Initializable,
     ERC1155Upgradeable,
-    ERC2981Upgradeable,
     OwnableUpgradeable
 {
     using Strings for uint256;
@@ -62,23 +60,13 @@ abstract contract Metadata is
      * @param uri_ Base URI for metadata.
      * @param name_ Name of the token collection.
      * @param symbol_ Symbol of the token collection.
-     * @param royaltyReceiver_ Address that receives royalty payments.
-     * @param royaltyFee_ Percentage fee for royalties (in basis points).
      */
     function __Metadata_init(
         string memory uri_,
         string memory name_,
-        string memory symbol_,
-        address royaltyReceiver_,
-        uint96 royaltyFee_
+        string memory symbol_
     ) internal onlyInitializing {
-        __Metadata_init_unchained(
-            uri_,
-            name_,
-            symbol_,
-            royaltyReceiver_,
-            royaltyFee_
-        );
+        __Metadata_init_unchained(uri_, name_, symbol_);
     }
 
     /**
@@ -86,22 +74,16 @@ abstract contract Metadata is
      * @param uri_ Base URI for metadata.
      * @param name_ Name of the token collection.
      * @param symbol_ Symbol of the token collection.
-     * @param royaltyReceiver_ Address that receives royalty payments.
-     * @param royaltyFee_ Percentage fee for royalties (in basis points).
      */
     function __Metadata_init_unchained(
         string memory uri_,
         string memory name_,
-        string memory symbol_,
-        address royaltyReceiver_,
-        uint96 royaltyFee_
+        string memory symbol_
     ) internal onlyInitializing {
         MetadataStorage storage $ = _getMetadataStorage();
         $._name = name_;
         $._symbol = symbol_;
         $._baseURI = uri_;
-
-        _setDefaultRoyalty(royaltyReceiver_, royaltyFee_);
     }
 
     /**
@@ -194,33 +176,5 @@ abstract contract Metadata is
                     )
                 )
                 : "";
-    }
-
-    /**
-     * @dev Checks if the contract supports a specific interface.
-     * @param interfaceId The interface identifier.
-     */
-    function supportsInterface(
-        bytes4 interfaceId
-    )
-        public
-        view
-        virtual
-        override(ERC1155Upgradeable, ERC2981Upgradeable)
-        returns (bool)
-    {
-        return super.supportsInterface(interfaceId);
-    }
-
-    /**
-     * @dev Sets default royalty information for all tokens in the contract.
-     * @param receiver Address to receive royalties.
-     * @param feeNumerator Royalty fee in basis points.
-     */
-    function setRoyalty(
-        address receiver,
-        uint96 feeNumerator
-    ) external onlyOwner {
-        _setDefaultRoyalty(receiver, feeNumerator);
     }
 }
