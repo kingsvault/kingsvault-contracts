@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT // License identifier
+// SPDX-License-Identifier: MIT
 // Compatible with OpenZeppelin Contracts ^5.0.0
 pragma solidity 0.8.28;
 
@@ -20,7 +20,6 @@ import {TicketsQueryable} from "./lib/TicketsQueryable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @custom:security-contact hi@kingsvault.io
-// Main contract for KingsVault card NFTs with randomness and upgradeability
 contract KingsVaultCardsV1 is
     Initializable,
     ERC1155Upgradeable,
@@ -317,8 +316,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Internal purchase function that handles payment, referral logic,
-     * ticket minting and card minting.
+     * @dev Internal purchase function that handles payment, referral logic, ticket minting and card minting.
      */
     function _buyTo(
         address to,
@@ -714,7 +712,7 @@ contract KingsVaultCardsV1 is
         _burn(sender, tokenId, balance);
         _sendUsdt(sender, refund);
 
-        // TODO event
+        emit PrizeBurned(sender, tokenId, balance);
     }
 
     function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
@@ -722,7 +720,7 @@ contract KingsVaultCardsV1 is
         uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
         _sendUsdt(state._teamWallet, sendAmount);
 
-        // TODO event
+        emit PrizeBurned(sender, tokenId, balance);
     }
 
     function _fulfillRandomWords(
