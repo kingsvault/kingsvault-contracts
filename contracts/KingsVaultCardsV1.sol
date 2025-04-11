@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT // License identifier
 // Compatible with OpenZeppelin Contracts ^5.0.0
 pragma solidity 0.8.28;
 
@@ -20,6 +20,7 @@ import {TicketsQueryable} from "./lib/TicketsQueryable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @custom:security-contact hi@kingsvault.io
+// Main contract for KingsVault card NFTs with randomness and upgradeability
 contract KingsVaultCardsV1 is
     Initializable,
     ERC1155Upgradeable,
@@ -212,13 +213,11 @@ contract KingsVaultCardsV1 is
         return "1";
     }
 
-    //+++
     function getState() external view returns (StateStorage memory) {
         StateStorage memory state = _getStateStorage();
         return state;
     }
 
-    //+++
     function getUser(
         address wallet
     )
@@ -240,7 +239,6 @@ contract KingsVaultCardsV1 is
         );
     }
 
-    //+++
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
         UsersStorage storage uStore = _getUsersStorage();
@@ -251,7 +249,6 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //+++
     /// @notice Adds or removes an auxiliary admin.
     function setAdmin(address wallet, bool status) external onlyOwner {
         UsersStorage storage uStore = _getUsersStorage();
@@ -259,41 +256,36 @@ contract KingsVaultCardsV1 is
         emit AdminChanged(wallet, status);
     }
 
-    //+++
     function isAdmin(address wallet) external view returns (bool) {
         UsersStorage storage uStore = _getUsersStorage();
         return uStore._admin[wallet];
     }
 
-    //+++
     function setReferrer(address wallet, bool status) external onlyOwner {
         UsersStorage storage uStore = _getUsersStorage();
         uStore._referrer[wallet] = status;
         emit ReferrerChanged(wallet, status);
     }
 
-    //+++
     function isReferrer(address wallet) external view returns (bool) {
         UsersStorage storage uStore = _getUsersStorage();
         return uStore._referrer[wallet];
     }
 
     // ========== Sale section ==========
-    //+++
+
     modifier thenSaleStopped() {
         StateStorage memory state = _getStateStorage();
         require(state._saleStopped, "KVC: sale must be stopped");
         _;
     }
 
-    //+++
     modifier thenSaleNotStopped() {
         StateStorage memory state = _getStateStorage();
         require(!state._saleStopped, "KVC: sale stopped");
         _;
     }
 
-    //+++
     /// @notice Permanently closes primary sale.
     function stopSale() external thenSaleNotStopped onlyOwner {
         StateStorage storage state = _getStateStorage();
@@ -301,7 +293,6 @@ contract KingsVaultCardsV1 is
         emit SaleStopped();
     }
 
-    //+++
     /**
      * @notice Purchases `qty` cards of a certain `tier` for `msg.sender`.
      * @param tier  Card tier (0‑3).
@@ -312,7 +303,6 @@ contract KingsVaultCardsV1 is
         _buyTo(_msgSender(), tier, qty, ref);
     }
 
-    //+++
     /**
      * @notice Purchases cards for a different address.
      * @dev No access restriction because payment is made by caller.
@@ -326,7 +316,6 @@ contract KingsVaultCardsV1 is
         _buyTo(to, tier, qty, ref);
     }
 
-    //+++
     /**
      * @dev Internal purchase function that handles payment, referral logic,
      * ticket minting and card minting.
@@ -372,7 +361,6 @@ contract KingsVaultCardsV1 is
         emit Purchase(to, tier, qty, newTickets);
     }
 
-    //+++
     function _doRefRewards(
         address buyer,
         address ref,
@@ -418,7 +406,6 @@ contract KingsVaultCardsV1 is
         return refRewards;
     }
 
-    //+++
     function _doTeamRewards(
         address buyer,
         uint256 cost,
@@ -458,7 +445,6 @@ contract KingsVaultCardsV1 is
         return teamRewards;
     }
 
-    //+++
     function _sendUsdt(address to, uint256 amount) private {
         StateStorage memory state = _getStateStorage();
         require(
@@ -467,7 +453,6 @@ contract KingsVaultCardsV1 is
         );
     }
 
-    //+++
     /**
      * @dev Pseudo‑random card ID generator.
      * For the presale we rely on block attributes
@@ -488,7 +473,6 @@ contract KingsVaultCardsV1 is
         return baseId + random;
     }
 
-    //+++
     function _getWinnerTokenId() private view returns (unit256) {
         StateStorage memory state = _getStateStorage();
         if (state._totalRaised >= state._targets[2]) return 16;
@@ -496,7 +480,6 @@ contract KingsVaultCardsV1 is
         else return 14;
     }
 
-    //+++
     modifier thenMilestoneReached() {
         StateStorage memory state = _getStateStorage();
         require(
@@ -506,7 +489,6 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //+++
     modifier thenMilestoneNotReached() {
         StateStorage memory state = _getStateStorage();
         require(
@@ -516,13 +498,11 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    //+++
     /// @notice Claims accumulated referral rewards.
     function claimRefRewards() external thenMilestoneReached {
         _claimRefRewardsTo(_msgSender());
     }
 
-    //+++
     function claimRefRewardsBatch(
         address[] calldata users
     ) external thenMilestoneReached onlyAdminOrOwner {
@@ -531,7 +511,6 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+++
     function _claimRefRewardsTo(address to) private {
         StateStorage storage state = _getStateStorage();
         UsersStorage storage uStore = _getUsersStorage();
@@ -545,7 +524,6 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+++
     /// @notice Updates team wallet address.
     function setTeamWallet(address teamWallet_) external onlyOwner {
         require(teamWallet_ != address(0), "KVC: zero team wallet");
@@ -555,7 +533,6 @@ contract KingsVaultCardsV1 is
         state._teamWallet = teamWallet_;
     }
 
-    //+++
     /// @notice Withdraws collected USDT to team wallet.
     function withdraw() external thenMilestoneReached onlyOwner {
         StateStorage storage state = _getStateStorage();
@@ -594,7 +571,6 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+++
     /// @notice Gifts tickets to a list of users.
     function giftTickets(
         address[] calldata users,
@@ -607,21 +583,19 @@ contract KingsVaultCardsV1 is
     }
 
     // ========== Buyback section ==========
-    //+++
+
     modifier thenBuybackStarted() {
         StateStorage memory state = _getStateStorage();
         require(state._buybackStarted, "Buyback must be started");
         _;
     }
 
-    //+++
     modifier thenBuybackNotStarted() {
         StateStorage memory state = _getStateStorage();
         require(!state._buybackStarted, "Buyback started");
         _;
     }
 
-    //+++
     /// @notice Enables card buy‑back (irreversible).
     function startBuyback()
         external
@@ -636,13 +610,11 @@ contract KingsVaultCardsV1 is
         emit BuybackStarted();
     }
 
-    //+++
     /// @notice Sells caller's entire card collection back to the contract.
     function buyback() external nonReentrant thenBuybackStarted {
         _buyback(_msgSender());
     }
 
-    //+++
     /// @notice Batch buy‑back helper for admins.
     function buybackBatch(
         address[] calldata users
@@ -652,7 +624,6 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+++
     /// @dev Internal buy‑back routine.
     function _buyback(address to) private {
         StateStorage memory state = _getStateStorage();
@@ -672,28 +643,25 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    //+++
     /// @dev Returns tier by card ID (each tier spans 3 IDs).
     function _getTierByTokenId(uint256 tokenId) private pure returns (uint256) {
         return (tokenId - 1) / 3;
     }
 
     // ========== Draw section ==========
-    //+++
+
     modifier thenDrawStarted() {
         StateStorage memory state = _getStateStorage();
         require(state._drawStarted, "KVC: draw must be started");
         _;
     }
 
-    //+++
     modifier thenDrawNotStarted() {
         StateStorage memory state = _getStateStorage();
         require(!state._drawStarted, "KVC: draw started");
         _;
     }
 
-    //+++
     function startDraw()
         external
         thenSaleStopped
@@ -707,21 +675,18 @@ contract KingsVaultCardsV1 is
         emit DrawStarted();
     }
 
-    //+++
     modifier thenWinnersAwarded() {
         StateStorage memory state = _getStateStorage();
         require(state._winnersAwarded, "KVC: winners not awarded");
         _;
     }
 
-    //+++
     modifier thenWinnersNotAwarded() {
         StateStorage memory state = _getStateStorage();
         require(!state._winnersAwarded, "KVC: winners awarded");
         _;
     }
 
-    //+++
     function selectWinners(
         bytes32 keyHash,
         uint64 subscriptionId,
@@ -760,7 +725,6 @@ contract KingsVaultCardsV1 is
         // TODO event
     }
 
-    //+++
     function _fulfillRandomWords(
         uint256 /*requestId*/,
         uint256[] memory randomWords
@@ -793,7 +757,6 @@ contract KingsVaultCardsV1 is
         state._winnersAwarded = true;
     }
 
-    //+
     function _contains(
         address[] memory list,
         address target
@@ -804,7 +767,6 @@ contract KingsVaultCardsV1 is
         return false;
     }
 
-    //+++
     /// @notice Opens peer‑to‑peer transfers (secondary market).
     function startTrade()
         external
@@ -817,7 +779,6 @@ contract KingsVaultCardsV1 is
         emit TradeStarted();
     }
 
-    //+++
     function uri(
         uint256 tokenId
     )
@@ -829,14 +790,12 @@ contract KingsVaultCardsV1 is
         return super.uri(tokenId);
     }
 
-    //+++
     function supportsInterface(
         bytes4 interfaceId
     ) public view override(ERC1155Upgradeable, Metadata) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
-    //+++
     function _update(
         address from,
         address to,
@@ -846,7 +805,6 @@ contract KingsVaultCardsV1 is
         super._update(from, to, ids, values);
     }
 
-    //+++
     function safeTransferFrom(
         address from,
         address to,
@@ -857,7 +815,6 @@ contract KingsVaultCardsV1 is
         super.safeTransferFrom(from, to, id, value, data);
     }
 
-    //+++
     function safeBatchTransferFrom(
         address from,
         address to,
