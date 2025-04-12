@@ -39,6 +39,54 @@ contract KingsVaultCardsV1 is
     TicketsQueryable
 {
     // ──────────────────────────────────────────────────────────────────────
+    //                               ERRORS
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// @notice Thrown when a zero address is passed for the team wallet.
+    error ZeroTeamWallet();
+
+    /// @notice Thrown when a caller is neither admin nor owner.
+    error OnlyAdminOrOwner();
+
+    /// @notice Thrown when a tier index is out of allowed range.
+    error InvalidTier();
+
+    /// @notice Thrown when quantity is zero.
+    error ZeroQuantity();
+
+    /// @notice Thrown when USDT transferFrom fails on buy.
+    error PaymentFailed();
+
+    /// @notice Thrown when USDT transfer fails (for sending rewards or buyback).
+    error USDTTransferFailed();
+
+    /// @notice Thrown when trying to interact with a sale that must be stopped but is not (or vice versa).
+    error SaleMustBeStopped();
+    error SaleAlreadyStopped();
+
+    /// @notice Thrown when checking for minimum milestone not reached/reached.
+    error MilestoneNotReached();
+    error MilestoneReached();
+
+    /// @notice Thrown when checking for buyback state.
+    error BuybackMustBeStarted();
+    error BuybackAlreadyStarted();
+
+    /// @notice Thrown when checking for draw state.
+    error DrawMustBeStarted();
+    error DrawAlreadyStarted();
+
+    /// @notice Thrown when winners have or haven't been awarded, but the opposite is required.
+    error WinnersNotAwarded();
+    error WinnersAlreadyAwarded();
+
+    /// @notice Thrown when the caller attempts to burn a winner token but has none.
+    error NotAWinner();
+
+    /// @notice Thrown when array lengths don't match (e.g., in giftTickets).
+    error LengthMismatch();
+
+    // ──────────────────────────────────────────────────────────────────────
     //                               STORAGE
     // ──────────────────────────────────────────────────────────────────────
 
@@ -253,7 +301,9 @@ contract KingsVaultCardsV1 is
 
         state._usdt = usdt_;
 
-        require(teamWallet_ != address(0), "KVC: zero team wallet");
+        if (teamWallet_ == address(0)) {
+            revert ZeroTeamWallet();
+        }
         emit TeamWalletChanged(state._teamWallet, teamWallet_);
         state._teamWallet = teamWallet_;
 
@@ -335,10 +385,9 @@ contract KingsVaultCardsV1 is
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
         UsersStorage storage uStore = _getUsersStorage();
-        require(
-            uStore._admin[sender] || sender == owner(),
-            "KVC: only admin or owner"
-        );
+        if (!uStore._admin[sender] && sender != owner()) {
+            revert OnlyAdminOrOwner();
+        }
         _;
     }
 
@@ -391,7 +440,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenSaleStopped() {
         StateStorage memory state = _getStateStorage();
-        require(state._saleStopped, "KVC: sale must be stopped");
+        if (!state._saleStopped) {
+            revert SaleMustBeStopped();
+        }
         _;
     }
 
@@ -400,7 +451,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenSaleNotStopped() {
         StateStorage memory state = _getStateStorage();
-        require(!state._saleStopped, "KVC: sale stopped");
+        if (state._saleStopped) {
+            revert SaleAlreadyStopped();
+        }
         _;
     }
 
@@ -450,29 +503,34 @@ contract KingsVaultCardsV1 is
         uint256 qty,
         address ref
     ) private nonReentrant thenSaleNotStopped {
-        require(tier < 4, "KVC: invalid tier");
-        require(qty > 0, "KVC: zero qty");
+        if (tier >= 4) {
+            revert InvalidTier();
+        }
+        if (qty == 0) {
+            revert ZeroQuantity();
+        }
 
         StateStorage storage state = _getStateStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
         // Calculate total cost and pull USDT from buyer
         uint256 cost = state._prices[tier] * qty;
-        require(
-            IERC20(state._usdt).transferFrom(_msgSender(), address(this), cost),
-            "KVC: payment failed"
+        bool success = IERC20(state._usdt).transferFrom(
+            _msgSender(),
+            address(this),
+            cost
         );
+        if (!success) {
+            revert PaymentFailed();
+        }
 
         // Increment buyer count if this is the user's first purchase
         if (uStore._user[to]._spent == 0) {
             state._buyers++;
         }
 
-        // Update global stats
         state._totalRaised += cost;
-        // Handle referral logic
         uint256 refRewards = _doRefRewards(to, ref, cost);
-        // Handle team rewards logic
         _doTeamRewards(to, cost, refRewards);
         uStore._user[to]._spent += cost;
 
@@ -604,10 +662,10 @@ contract KingsVaultCardsV1 is
      */
     function _sendUsdt(address to, uint256 amount) private {
         StateStorage memory state = _getStateStorage();
-        require(
-            IERC20(state._usdt).transfer(to, amount),
-            "KVC: USDT transfer failed"
-        );
+        bool success = IERC20(state._usdt).transfer(to, amount);
+        if (!success) {
+            revert USDTTransferFailed();
+        }
     }
 
     /**
@@ -645,10 +703,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenMilestoneReached() {
         StateStorage memory state = _getStateStorage();
-        require(
-            state._totalRaised >= state._targets[0],
-            "KVC: min milestone not reached"
-        );
+        if (state._totalRaised < state._targets[0]) {
+            revert MilestoneNotReached();
+        }
         _;
     }
 
@@ -657,10 +714,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenMilestoneNotReached() {
         StateStorage memory state = _getStateStorage();
-        require(
-            state._totalRaised < state._targets[0],
-            "KVC: min milestone reached"
-        );
+        if (state._totalRaised >= state._targets[0]) {
+            revert MilestoneReached();
+        }
         _;
     }
 
@@ -712,7 +768,9 @@ contract KingsVaultCardsV1 is
      * @param teamWallet_ The new address for the team wallet.
      */
     function setTeamWallet(address teamWallet_) external onlyOwner {
-        require(teamWallet_ != address(0), "KVC: zero team wallet");
+        if (teamWallet_ == address(0)) {
+            revert ZeroTeamWallet();
+        }
 
         StateStorage storage state = _getStateStorage();
         emit TeamWalletChanged(state._teamWallet, teamWallet_);
@@ -776,7 +834,9 @@ contract KingsVaultCardsV1 is
         address[] calldata users,
         uint256[] calldata tickets
     ) external onlyAdminOrOwner {
-        require(users.length == tickets.length, "KVC: length mismatch");
+        if (users.length != tickets.length) {
+            revert LengthMismatch();
+        }
         for (uint256 i = 0; i < users.length; ++i) {
             _mintTickets(users[i], tickets[i]);
         }
@@ -789,7 +849,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenBuybackStarted() {
         StateStorage memory state = _getStateStorage();
-        require(state._buybackStarted, "Buyback must be started");
+        if (!state._buybackStarted) {
+            revert BuybackMustBeStarted();
+        }
         _;
     }
 
@@ -798,7 +860,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenBuybackNotStarted() {
         StateStorage memory state = _getStateStorage();
-        require(!state._buybackStarted, "Buyback started");
+        if (state._buybackStarted) {
+            revert BuybackAlreadyStarted();
+        }
         _;
     }
 
@@ -875,7 +939,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenDrawStarted() {
         StateStorage memory state = _getStateStorage();
-        require(state._drawStarted, "KVC: draw must be started");
+        if (!state._drawStarted) {
+            revert DrawMustBeStarted();
+        }
         _;
     }
 
@@ -884,7 +950,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenDrawNotStarted() {
         StateStorage memory state = _getStateStorage();
-        require(!state._drawStarted, "KVC: draw started");
+        if (state._drawStarted) {
+            revert DrawAlreadyStarted();
+        }
         _;
     }
 
@@ -910,7 +978,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenWinnersAwarded() {
         StateStorage memory state = _getStateStorage();
-        require(state._winnersAwarded, "KVC: winners not awarded");
+        if (!state._winnersAwarded) {
+            revert WinnersNotAwarded();
+        }
         _;
     }
 
@@ -919,7 +989,9 @@ contract KingsVaultCardsV1 is
      */
     modifier thenWinnersNotAwarded() {
         StateStorage memory state = _getStateStorage();
-        require(!state._winnersAwarded, "KVC: winners awarded");
+        if (state._winnersAwarded) {
+            revert WinnersAlreadyAwarded();
+        }
         _;
     }
 
@@ -953,7 +1025,9 @@ contract KingsVaultCardsV1 is
         address sender = _msgSender();
         uint256 tokenId = _getWinnerTokenId();
         uint256 balance = balanceOf(sender, tokenId);
-        require(balance > 0, "Not a winner");
+        if (balance == 0) {
+            revert NotAWinner();
+        }
 
         uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
         _burn(sender, tokenId, balance);
@@ -1010,7 +1084,14 @@ contract KingsVaultCardsV1 is
             address nextWinner = ticketsOwnerOf(ticketId);
 
             // Ensure no duplicates in the winners array
-            if (!_contains(winners, nextWinner)) {
+            bool isDuplicate = false;
+            for (uint256 i = 0; i < winners.length; i++) {
+                if (winners[i] == nextWinner) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if (!isDuplicate) {
                 winners[winnersCounter] = nextWinner;
                 _mint(nextWinner, winnerTokenId, 1, "");
                 emit Winner(nextWinner, winnerTokenId);
@@ -1019,19 +1100,6 @@ contract KingsVaultCardsV1 is
             iteration++;
         }
         state._winnersAwarded = true;
-    }
-
-    /**
-     * @dev Helper function to check if an address is already in the array of winners (avoid duplicates).
-     */
-    function _contains(
-        address[] memory list,
-        address target
-    ) private pure returns (bool) {
-        for (uint256 i = 0; i < list.length; i++) {
-            if (list[i] == target) return true;
-        }
-        return false;
     }
 
     /**

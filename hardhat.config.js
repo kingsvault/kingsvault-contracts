@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
+require("hardhat-contract-sizer");
 require("dotenv").config();
 
 
@@ -15,6 +16,12 @@ module.exports = {
       },
       evmVersion: "cancun",
     },
+  },
+
+  contractSizer: {
+    alphaSort: true,
+    runOnCompile: true,
+    disambiguatePaths: false,
   },
 
   networks: {
