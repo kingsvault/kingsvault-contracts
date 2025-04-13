@@ -21,9 +21,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title KingsVaultCardsV1
- * @notice This contract represents a set of "Kings Vault" collectible cards with multiple tiers,
- *         purchasable for USDT and granting raffle tickets for potential prizes.
- * @dev Uses upgradeable pattern (Initializable) and integrates with Chainlink VRF for random draws.
+ * @notice Main contract for "Kings Vault" collectible cards, implementing ERC-1155 with additional
+ *         logic for purchasing, minting, referral rewards, buybacks, draws, etc.
+ * @dev Uses upgradeable pattern (Initializable) and Chainlink VRF for random draw functionality.
  */
 contract KingsVaultCardsV1 is
     Initializable,
@@ -43,7 +43,8 @@ contract KingsVaultCardsV1 is
     // ──────────────────────────────────────────────────────────────────────
 
     /**
-     * @dev Returns a pointer to the StateStorage struct in storage.
+     * @dev Returns a pointer to the StateStorage struct in storage, containing core contract state.
+     *      Uses assembly to map a specific storage slot.
      */
     function _getStateStorage() private pure returns (StateStorage storage $) {
         // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.state")) - 1)) & ~bytes32(uint256(0xff))
@@ -53,7 +54,8 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Returns a pointer to the CounterStorage struct in storage.
+     * @dev Returns a pointer to the CounterStorage struct in storage, tracking numeric counters (like totalRaised).
+     *      Uses assembly to map a specific storage slot.
      */
     function _getCounterStorage()
         private
@@ -67,7 +69,8 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Returns a pointer to the UsersStorage struct in storage.
+     * @dev Returns a pointer to the UsersStorage struct in storage, holding info about users, admins, and referrers.
+     *      Uses assembly to map a specific storage slot.
      */
     function _getUsersStorage() private pure returns (UsersStorage storage $) {
         // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.users")) - 1)) & ~bytes32(uint256(0xff))
@@ -82,26 +85,29 @@ contract KingsVaultCardsV1 is
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
+        // Prevents implementation contract from being initialized directly
         _disableInitializers();
     }
 
     /**
      * @notice Contract initializer (replaces constructor for upgradeable pattern).
-     * @dev Sets up the initial state, including pricing, referral percentage, and initial roles.
-     * @param initialOwner_    First owner / admin of the contract.
+     * @dev Sets up the initial configuration for the ERC1155 contract, VRF, and other modules.
+     * @param initialOwner_    Address of the initial owner/admin.
      * @param vrfCoordinator_  Chainlink VRF coordinator address.
      */
     function initialize(
         address initialOwner_,
         address vrfCoordinator_
     ) public virtual initializer {
-        // -------------------------- OZ initializers ----------------------
+        // 1. Initialize ERC1155 with no default URI
         __ERC1155_init();
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
+
+        // 2. Setup Ownership
         __Ownable_init(initialOwner_);
 
-        // --------------------------- Project libs ------------------------
+        // 3. Initialize custom modules/libraries
         __Metadata_init(
             "https://kingsvault.github.io/metadata/",
             "Kings Vault Cards",
@@ -109,42 +115,67 @@ contract KingsVaultCardsV1 is
         );
         __Tickets_init();
         __TicketsQueryable_init();
+
+        // 4. Chainlink VRF base initialization
         __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
 
-        // --------------------------- Admin set‑up ------------------------
+        // Setup admin role for the initial owner
         _getUsersStorage()._admin[initialOwner_] = true;
         emit AdminChanged(initialOwner_, true);
     }
 
+    /**
+     * @dev Example placeholder for USDT token address retrieval.
+     *      In a production scenario, you'd store the actual address in StateStorage or pass it in the initializer.
+     */
     function _usdt() private pure returns (IERC20) {
-        return IERC20(address(0)); // TODO
+        return IERC20(address(0)); // TODO: Replace with actual USDT address or stored reference
     }
 
+    /**
+     * @dev Example placeholder for the team wallet address.
+     *      In a production scenario, store it in StateStorage or set via a function.
+     */
     function _teamWallet() private pure returns (address) {
-        return address(0); // TODO
+        return address(0); // TODO: Replace with actual team wallet
     }
 
+    /**
+     * @dev Denominator for percentage calculations (e.g., 10_000 = 100% in basis points).
+     */
     function _fenominator() private pure returns (uint256) {
         return 10_000;
     }
 
+    /**
+     * @dev Example function to calculate referral rewards at 5%.
+     */
     function _calculateRefRewards(
         uint256 value
     ) private pure returns (uint256) {
-        return (value * 500) / _fenominator();
+        return (value * 500) / _fenominator(); // 5%
     }
 
+    /**
+     * @dev Example function to calculate raw team rewards at 20%.
+     */
     function _calculateTeamRewardsRaw(
         uint256 value
     ) private pure returns (uint256) {
-        return (value * 2_000) / _fenominator();
+        return (value * 2_000) / _fenominator(); // 20%
     }
 
+    /**
+     * @dev Example function to calculate "car price" portion at 80%.
+     */
     function _calculateCarPrice(uint256 value) private pure returns (uint256) {
-        return (value * 8_000) / _fenominator();
+        return (value * 8_000) / _fenominator(); // 80%
     }
 
-    /// @dev Bonus tickets granted per card purchase for each tier.
+    /**
+     * @dev Returns bonus tickets for each tier. For demonstration only.
+     *      Tier 0 => 5 tickets, tier 1 => 35, tier 2 => 150, tier 3 => 500.
+     */
     function _bonusTickets(
         uint256 tier
     ) private pure returns (uint256 ticketsPerTier) {
@@ -154,14 +185,19 @@ contract KingsVaultCardsV1 is
         else if (tier == 3) return 500;
     }
 
-    /// @dev Funding milestones (18 decimals) at which different contract logic may unlock or change.
-    function _target(uint256 carId) private pure returns (uint256 target) {
-        if (carId == 0) return 75_000_000000000000000000;
-        else if (carId == 1) return 265_000_000000000000000000;
-        else if (carId == 2) return 350_000_000000000000000000;
+    /**
+     * @dev Example function for retrieving milestone targets.
+     *      0 => 75k, 1 => 265k, 2 => 350k (in 18 decimals).
+     */
+    function _target(uint256 index) private pure returns (uint256 target) {
+        if (index == 0) return 75_000_000000000000000000;
+        else if (index == 1) return 265_000_000000000000000000;
+        else if (index == 2) return 350_000_000000000000000000;
     }
 
-    /// @dev Price per card tier (in USDT with 18 decimals)
+    /**
+     * @dev Tiered pricing function, returning 5, 25, 88, 250 USDT for tiers 0..3.
+     */
     function _carPriceByTier(
         uint256 tier
     ) private pure returns (uint256 carPrice) {
@@ -171,50 +207,47 @@ contract KingsVaultCardsV1 is
         else if (tier == 3) return 250_000000000000000000;
     }
 
+    /**
+     * @dev Helper to read total USDT raised from the CounterStorage.
+     */
     function _totalRaised() private view returns (uint256) {
         return _getCounterStorage()._totalRaised;
     }
 
     /**
-     * @dev Returns how much the "car" or main prize is set to cost, based on the highest milestone that was reached.
+     * @dev Determines the "current car price" based on which milestone is reached.
      */
     function _currentCarPrice() private view returns (uint256 carPrice) {
         uint256 totalRaised = _totalRaised();
-
-        if (totalRaised >= _target(2)) {
-            return _target(2);
-        } else if (totalRaised >= _target(1)) {
-            return _target(1);
-        } else if (totalRaised >= _target(0)) {
-            return _target(0);
-        }
+        if (totalRaised >= _target(2)) return _target(2);
+        else if (totalRaised >= _target(1)) return _target(1);
+        else if (totalRaised >= _target(0)) return _target(0);
     }
 
     /**
-     * @notice Returns the version of the token contract. Useful for upgrades.
-     * @return The version string of the contract.
+     * @notice Returns the version of this contract. Useful for upgrades or identification.
      */
     function version() external view virtual returns (string memory) {
         return "1";
     }
 
     /**
-     * @notice Returns a copy of the contract's StateStorage struct.
+     * @notice Returns a copy of the contract's StateStorage struct (for external reading).
      */
     function getState() external pure returns (StateStorage memory) {
         return _getStateStorage();
     }
 
     /**
-     * @notice Returns a copy of the contract's CounterStorage struct.
+     * @notice Returns a copy of the contract's CounterStorage struct (for external reading).
      */
     function getCounter() external pure returns (CounterStorage memory) {
         return _getCounterStorage();
     }
 
     /**
-     * @notice Returns various user info (spent amount, referrer, unclaimed refRewards, tickets).
-     * @param wallet The address of the user whose info is fetched.
+     * @notice Returns info about a user: how much they've spent, their referrer, unclaimed refRewards, and tickets.
+     * @param wallet Address of the user to query.
      */
     function getUser(
         address wallet
@@ -238,7 +271,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Restricts the function to be called only by an admin or the contract owner.
+     * @dev Only an admin or the owner can call functions with this modifier.
      */
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
@@ -249,9 +282,9 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Adds or removes an auxiliary admin. Admins have special privileges like batch buyback or batch claim.
-     * @param wallet The address to grant or revoke admin rights.
-     * @param status True to grant admin, false to revoke.
+     * @notice Grants or revokes admin status for `wallet`.
+     * @param wallet Address to modify admin status.
+     * @param status True to set admin, false to remove.
      */
     function setAdmin(address wallet, bool status) external onlyOwner {
         _getUsersStorage()._admin[wallet] = status;
@@ -259,18 +292,14 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Checks if a given address is an admin.
-     * @param wallet The address to query.
-     * @return True if the address has admin rights, false otherwise.
+     * @notice Checks if an address is an admin.
      */
     function isAdmin(address wallet) external view returns (bool) {
         return _getUsersStorage()._admin[wallet];
     }
 
     /**
-     * @notice Assigns or revokes referral status for a given address.
-     * @param wallet The address to grant or revoke referral privileges.
-     * @param status True to mark as a referrer, false to revoke.
+     * @notice Sets or revokes referrer status for a given address.
      */
     function setReferrer(address wallet, bool status) external onlyOwner {
         _getUsersStorage()._referrer[wallet] = status;
@@ -279,8 +308,6 @@ contract KingsVaultCardsV1 is
 
     /**
      * @notice Checks if a given address is a registered referrer.
-     * @param wallet The address to query.
-     * @return True if the address is a referrer, false otherwise.
      */
     function isReferrer(address wallet) external view returns (bool) {
         return _getUsersStorage()._referrer[wallet];
@@ -289,7 +316,7 @@ contract KingsVaultCardsV1 is
     // ========== Sale section ==========
 
     /**
-     * @dev Ensures the primary sale has been stopped.
+     * @dev Modifier that ensures the primary sale has been explicitly stopped.
      */
     modifier thenSaleStopped() {
         if (!_getStateStorage()._saleStopped) {
@@ -299,7 +326,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Ensures the primary sale is still ongoing.
+     * @dev Modifier that ensures the primary sale is still ongoing (not stopped).
      */
     modifier thenSaleNotStopped() {
         if (_getStateStorage()._saleStopped) {
@@ -309,8 +336,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Permanently closes primary sale for new cards.
-     *         Once stopped, it cannot be restarted.
+     * @notice Permanently stops new card sales. Cannot be undone.
      */
     function stopSale() external thenSaleNotStopped onlyOwner {
         _getStateStorage()._saleStopped = true;
@@ -318,18 +344,17 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Purchases `qty` cards of a specified `tier` for the message sender.
-     * @param tier Card tier index (0‑3).
-     * @param qty  Number of cards to purchase.
-     * @param ref  Optional referrer address. If the user has a referrer set previously, that one is used instead.
+     * @notice Buys `qty` cards of tier `tier`, minted to caller's address.
+     * @param tier Tier index (0..3).
+     * @param qty  Quantity to purchase.
+     * @param ref  Optional referrer address.
      */
     function buy(uint256 tier, uint256 qty, address ref) external {
         _buyTo(_msgSender(), tier, qty, ref);
     }
 
     /**
-     * @notice Purchases `qty` cards for a different address `to`. Payment is pulled from msg.sender.
-     * @dev This allows gift purchases or group buys on behalf of another address.
+     * @notice Buys `qty` cards for a different address, minted to `to`. Payment is still pulled from msg.sender.
      */
     function buyTo(
         address to,
@@ -341,11 +366,8 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Internal routine that executes the logic for buying cards:
-     *  - Transfers USDT
-     *  - Updates user and global sale stats
-     *  - Allocates referral and team rewards
-     *  - Mints the actual NFTs and bonus tickets
+     * @dev Core logic for buying cards, transferring USDT, tracking referrals,
+     *      computing rewards, and minting the ERC1155 tokens + bonus tickets.
      */
     function _buyTo(
         address to,
@@ -363,33 +385,37 @@ contract KingsVaultCardsV1 is
         CounterStorage storage counter = _getCounterStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
-        // Calculate total cost and pull USDT from buyer
+        // Price of each card in the chosen tier
         uint256 cost = _carPriceByTier(tier) * qty;
+        // Pull USDT from buyer
         bool success = _usdt().transferFrom(_msgSender(), address(this), cost);
         if (!success) {
             revert PaymentFailed();
         }
 
-        // Increment buyer count if this is the user's first purchase
+        // If first time buyer, increment buyer count
         if (uStore._user[to]._spent == 0) {
             counter._buyers++;
         }
 
         counter._totalRaised += cost;
+        // Compute and store referral and team rewards
         uint256 refRewards = _doRefRewards(to, ref, cost);
         _doTeamRewards(to, cost, refRewards);
+
+        // Update user's spent
         uStore._user[to]._spent += cost;
 
-        // Mint the requested number of NFTs in the chosen tier
+        // Mint actual NFT cards
         for (uint256 i = 0; i < qty; i++) {
             _mint(to, _getRandomTokenId(tier), 1, "");
         }
 
-        // Mint the appropriate number of bonus tickets
+        // Mint bonus raffle tickets
         uint256 newTickets = _bonusTickets(tier) * qty;
         _mintTickets(to, newTickets);
 
-        // Track a special cutoff (1000 initial buyers) for an extra certificate draw
+        // If within first 1000 buyers, track special certificate ticket count
         if (counter._buyers <= 1000) {
             counter._ticketsForCertificate = _ticketsTotal();
         }
@@ -398,8 +424,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Calculates and logs referral rewards. If a milestone isn't reached yet,
-     *      the referrer's rewards remain stored on-chain until a milestone is triggered.
+     * @dev Allocates referral rewards based on a 5% formula, either storing them for later or paying out immediately.
      */
     function _doRefRewards(
         address buyer,
@@ -409,17 +434,17 @@ contract KingsVaultCardsV1 is
         CounterStorage storage counter = _getCounterStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
-        // If user has an existing referrer, override the provided `ref`
+        // If the user has a referrer already, override
         if (uStore._user[buyer]._referrer != address(0)) {
             ref = uStore._user[buyer]._referrer;
         }
 
-        // Check that the referrer is valid and not the buyer themselves
+        // Check if ref is valid and not the same as buyer
         if (!uStore._referrer[ref] || ref == buyer) {
             return 0;
         }
 
-        // If it's the buyer's first purchase and they have no referrer set, record it.
+        // If this is buyer's first purchase and ref not set, set it
         if (
             uStore._user[buyer]._spent == 0 &&
             uStore._user[buyer]._referrer == address(0)
@@ -427,19 +452,19 @@ contract KingsVaultCardsV1 is
             uStore._user[buyer]._referrer = ref;
         }
 
-        // Calculate 5% referral reward
+        // 5% referral reward
         refRewards = _calculateRefRewards(cost);
         counter._totalRefRewards += refRewards;
 
         emit RefRewardsAccrued(ref, buyer, refRewards);
 
-        // If we haven't reached the first milestone, store rewards in user’s account
+        // If first milestone not reached, store rewards on-chain
         if (_totalRaised() < _target(0)) {
             uStore._user[ref]._refRewards += refRewards;
             return refRewards;
         }
 
-        // Otherwise, pay out immediately
+        // Otherwise, pay out ref rewards immediately
         uint256 sendAmount = refRewards;
         if (uStore._user[ref]._refRewards > 0) {
             sendAmount += uStore._user[ref]._refRewards;
@@ -454,8 +479,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Calculates and logs team rewards. Depending on the fundraising milestone,
-     *      part of the cost is withheld for the prize pool (car) and some is allocated to the team.
+     * @dev Allocates team rewards (15%, 100%, or partial, depending on milestone).
      */
     function _doTeamRewards(
         address buyer,
@@ -467,12 +491,11 @@ contract KingsVaultCardsV1 is
         address teamWallet = _teamWallet();
         uint256 totalRaised = _totalRaised();
 
-        // If final target isn't reached, team gets 20% minus 5% referral => 15%.
-        // If final target was reached mid-transaction, partial calculations are made.
+        // If final target not reached, team = 20% - 5% referral => 15%
         if (totalRaised < _target(2)) {
-            teamRewards = _calculateTeamRewardsRaw(cost) - refRewards; // 20% minus referral
+            teamRewards = _calculateTeamRewardsRaw(cost) - refRewards;
         } else if ((totalRaised - cost) < _target(2)) {
-            // If the transaction itself crossed the last milestone boundary, do partial distribution
+            // If crossing final milestone boundary mid-transaction
             uint256 extra = totalRaised - _target(2);
             uint256 targetDelta = cost - extra;
             teamRewards =
@@ -480,19 +503,19 @@ contract KingsVaultCardsV1 is
                 extra -
                 refRewards;
         } else {
-            // Past final target, team effectively gets the full cost minus referral.
+            // If final target fully surpassed, team takes entire cost minus ref
             teamRewards = cost - refRewards;
         }
 
         emit TeamRewardsAccrued(teamWallet, buyer, teamRewards);
 
-        // If we haven't reached the first milestone, store team rewards on contract
+        // If first milestone not reached, store on contract
         if (totalRaised < _target(0)) {
             counter._totalTeamRewards += teamRewards;
             return teamRewards;
         }
 
-        // Otherwise, pay out immediately
+        // Else pay out immediately
         uint256 sendAmount = teamRewards;
         if (counter._totalTeamRewards > 0) {
             sendAmount += counter._totalTeamRewards;
@@ -507,8 +530,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Safely sends USDT from this contract to the specified address.
-     *      Reverts if the transfer fails.
+     * @dev Transfers USDT from this contract to `to`. Reverts if transfer fails.
      */
     function _sendUsdt(address to, uint256 amount) private {
         bool success = _usdt().transfer(to, amount);
@@ -518,11 +540,10 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Generates a pseudo-random card ID based on block attributes, timestamp, and total supply.
-     *      Each tier corresponds to 3 potential token IDs within that tier range.
+     * @dev Generates a pseudo-random token ID within [tier*3 + 1, tier*3 + 3].
      */
     function _getRandomTokenId(uint256 tier) private view returns (uint256) {
-        uint256 baseId = tier * 3 + 1; // Each tier spans 3 token IDs
+        uint256 baseId = tier * 3 + 1;
         uint256 random = uint256(
             keccak256(
                 abi.encodePacked(
@@ -532,13 +553,12 @@ contract KingsVaultCardsV1 is
                     totalSupply()
                 )
             )
-        ) % 3; // results in 0, 1, or 2
+        ) % 3; // 0..2
         return baseId + random;
     }
 
     /**
-     * @dev Determines which token ID corresponds to the "car" or main prize certificate,
-     *      based on how much total funding was raised.
+     * @dev Returns the winner token ID for the final "car" prize: 14, 15, or 16 depending on totalRaised milestone.
      */
     function _getWinnerTokenId() private view returns (uint256) {
         uint256 totalRaised = _totalRaised();
@@ -547,8 +567,10 @@ contract KingsVaultCardsV1 is
         else return 14;
     }
 
+    // ========== Milestones Checking ==========
+
     /**
-     * @dev Only executes once we've reached the minimum milestone target.
+     * @dev Ensures that the minimum milestone has been reached before allowing the function to proceed.
      */
     modifier thenMilestoneReached() {
         if (_totalRaised() < _target(0)) {
@@ -567,20 +589,18 @@ contract KingsVaultCardsV1 is
         _;
     }
 
-    // ---------------------------------------------------------------------
-    // REFERRAL REWARD CLAIM
-    // ---------------------------------------------------------------------
+    // ========== Referral Reward Claim ==========
 
     /**
-     * @notice Allows any user to claim accumulated referral rewards once the minimum milestone is reached.
+     * @notice Claims referral rewards for msg.sender, if a milestone is reached.
      */
     function claimRefRewards() external thenMilestoneReached {
         _claimRefRewardsTo(_msgSender());
     }
 
     /**
-     * @notice Admin/owner can process claims for multiple addresses in a single transaction.
-     * @param users An array of addresses whose referral rewards should be claimed.
+     * @notice Batch-claims referral rewards for a list of addresses.
+     * @param users Array of addresses to claim for.
      */
     function claimRefRewardsBatch(
         address[] calldata users
@@ -591,7 +611,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Internal routine to finalize referral rewards payout to a specific address.
+     * @dev Internal function to finalize referral payout to address `to`.
      */
     function _claimRefRewardsTo(address to) private {
         UsersStorage storage uStore = _getUsersStorage();
@@ -605,32 +625,28 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    // ---------------------------------------------------------------------
-    // TEAM WALLET & WITHDRAWAL
-    // ---------------------------------------------------------------------
+    // ========== Team Wallet & Withdrawals ==========
 
     /**
-     * @notice Withdraws any unclaimed portion of the funds to the team wallet, once the minimum milestone is met.
-     *         Calculation accounts for the part reserved for the main car prize.
+     * @notice Withdraws accumulated funds to team wallet, once first milestone is reached.
      */
     function withdraw() external thenMilestoneReached onlyOwner {
         CounterStorage storage counter = _getCounterStorage();
 
         address teamWallet = _teamWallet();
-
-        // The total referral rewards (claimed + unclaimed)
+        // sum of all referral rewards (claimed + unclaimed)
         uint256 refRewards = counter._totalRefRewardsClaimed +
             counter._totalRefRewards;
 
-        // The "carPrice" depends on which milestone the totalRaised has passed.
+        // "carPrice" depends on highest milestone
         uint256 carPrice = _currentCarPrice();
         uint256 extra = 0;
+        // If sale was stopped, leftover is withdrawable
         if (_getStateStorage()._saleStopped) {
-            // If sale is stopped, leftover beyond carPrice can be withdrawn
             extra = _totalRaised() - carPrice;
         }
 
-        // Team gets 20% of the carPrice plus any leftover, minus the portion already claimed by ref + team
+        // Team gets 20% of carPrice plus leftover minus portion claimed by ref + team
         uint256 sendAmount = _calculateTeamRewardsRaw(carPrice) +
             extra -
             refRewards -
@@ -642,10 +658,12 @@ contract KingsVaultCardsV1 is
         emit TeamRewardsClaimed(teamWallet, sendAmount);
     }
 
+    // ========== Gift Tickets ==========
+
     /**
-     * @notice Allows admins to gift additional raffle tickets to selected addresses.
-     * @param users Addresses receiving the tickets.
-     * @param tickets Number of tickets per address.
+     * @notice Admin function to gift extra raffle tickets to specified users.
+     * @param users   Addresses to gift tickets to.
+     * @param tickets Corresponding numbers of tickets each user receives.
      */
     function giftTickets(
         address[] calldata users,
@@ -659,7 +677,7 @@ contract KingsVaultCardsV1 is
         }
     }
 
-    // ========== Buyback section ==========
+    // ========== Buyback Section ==========
 
     /**
      * @dev Ensures the buyback phase is started.
@@ -682,8 +700,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Enables the buyback phase, allowing users to sell back their purchased cards.
-     *         Irreversible once started.
+     * @notice Starts the buyback phase, letting users sell cards back.
      */
     function startBuyback()
         external
@@ -698,14 +715,14 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Sells the caller's entire card collection back to the contract for a refund.
+     * @notice Sells entire card collection of msg.sender back to contract.
      */
     function buyback() external nonReentrant thenBuybackStarted {
         _buyback(_msgSender());
     }
 
     /**
-     * @notice Allows an admin or owner to batch buyback cards from multiple users in one transaction.
+     * @notice Batch buyback for multiple users by an admin/owner.
      */
     function buybackBatch(
         address[] calldata users
@@ -716,12 +733,11 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Internal routine for selling cards back to the contract.
-     *      Iterates through each token ID, burning the user's holdings and sending them the appropriate USDT refund.
+     * @dev Core buyback logic: for each token ID the user holds, burn and refund USDT.
      */
     function _buyback(address to) private {
         uint256 total = 0;
-        // Tiers 0-3 correspond to token IDs [1..12]
+        // Tiers 0..3 => token IDs [1..12]
         for (uint256 tokenId = 1; tokenId <= 12; ++tokenId) {
             uint256 balance = balanceOf(to, tokenId);
             if (balance > 0) {
@@ -737,14 +753,13 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Calculates the tier based on the token ID.
-     *      Each tier has 3 unique token IDs, e.g., Tier 0 -> IDs 1,2,3; Tier 1 -> IDs 4,5,6, etc.
+     * @dev Helper to derive tier from a tokenId. Each tier spans 3 token IDs.
      */
     function _getTierByTokenId(uint256 tokenId) private pure returns (uint256) {
         return (tokenId - 1) / 3;
     }
 
-    // ========== Draw section ==========
+    // ========== Draw Section ==========
 
     /**
      * @dev Ensures the lucky draw has been started.
@@ -767,8 +782,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Starts the draw phase, once the sale is stopped, buyback is not used,
-     *         and the minimum milestone is met.
+     * @notice Initiates the draw phase after sale is stopped, no buyback is used, and milestone is reached.
      */
     function startDraw()
         external
@@ -803,12 +817,8 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Requests random words from Chainlink VRF to fairly select winners.
-     *         This can only be called once, by the owner, after the draw phase starts.
-     * @param keyHash Chainlink VRF key hash.
-     * @param subscriptionId Chainlink VRF subscription ID.
-     * @param requestConfirmations Number of confirmations the VRF node should wait before responding.
-     * @param callbackGasLimit Gas limit for the fulfillRandomWords callback.
+     * @notice Requests random words from Chainlink VRF to select winners.
+     *         Called only once by owner after the draw has started.
      */
     function selectWinners(
         bytes32 keyHash,
@@ -826,7 +836,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Allows the winning user (holding the winner token ID) to burn it in exchange for the prize amount in USDT.
+     * @notice Allows a winner to burn their special token in exchange for the "car" prize in USDT.
      */
     function burnPrize() external nonReentrant thenWinnersAwarded {
         address sender = _msgSender();
@@ -844,11 +854,10 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Allows the owner to withdraw the portion of the "car" prize if it remains unclaimed, after winners are chosen.
+     * @notice Withdraws unclaimed portion of the car prize if winners do not burn their token.
      */
     function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
         address teamWallet = _teamWallet();
-
         uint256 sendAmount = _calculateCarPrice(_currentCarPrice());
         _sendUsdt(teamWallet, sendAmount);
 
@@ -856,8 +865,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Chainlink VRF callback that receives a random word and mints winning tokens to randomly selected addresses.
-     *      The first three winners receive ID #13 tokens (certificates), and the final winner receives the "car" token.
+     * @dev Callback from Chainlink VRF providing randomness. Mints winning tokens to randomly selected addresses.
      */
     function _fulfillRandomWords(
         uint256 /*requestId*/,
@@ -868,9 +876,7 @@ contract KingsVaultCardsV1 is
         uint256 iteration = 0;
         uint256 randomWord = randomWords[0];
 
-        // Pick 4 winners in total:
-        // - The first 3 get tokenId 13 (certificate)
-        // - The last winner gets tokenId 14, 15, or 16, depending on totalRaised
+        // We pick 4 winners total. The first 3 get tokenId 13, the last gets 14..16 depending on totalRaised
         while (winnersCounter < 4) {
             uint256 winnerTokenId = winnersCounter < 3
                 ? 13
@@ -886,7 +892,7 @@ contract KingsVaultCardsV1 is
 
             address nextWinner = ticketsOwnerOf(ticketId);
 
-            // Ensure no duplicates in the winners array
+            // Avoid duplicates in winners array
             bool isDuplicate = false;
             for (uint256 i = 0; i < winners.length; i++) {
                 if (winners[i] == nextWinner) {
@@ -906,7 +912,7 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Internal update function combining logic from ERC1155 and ERC1155Supply for supply tracking.
+     * @dev Overridden update function that merges logic from ERC1155 and ERC1155Supply for supply tracking.
      */
     function _update(
         address from,
