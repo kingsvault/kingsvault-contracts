@@ -240,8 +240,7 @@ contract KingsVaultCardsV1 is
      */
     modifier onlyAdminOrOwner() {
         address sender = _msgSender();
-        UsersStorage storage uStore = _getUsersStorage();
-        if (!uStore._admin[sender] && sender != owner()) {
+        if (!_getUsersStorage()._admin[sender] && sender != owner()) {
             revert OnlyAdminOrOwner();
         }
         _;
