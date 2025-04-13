@@ -25,7 +25,7 @@ async function main() {
   console.log(`testErc20`, await testErc20.balanceOf(accounts[0].address));
   console.log(`TestErc20 deployed to: ${testErc20.target}`);
 
-  fs.writeFileSync(`./scripts/config.${network.name}.test_usdt_address.txt`, testErc20.target.toString(), { encoding: "utf8", });
+  fs.writeFileSync(`./scripts/config.${network.name}.usdt_address.txt`, testErc20.target.toString(), { encoding: "utf8", });
 }
 
 main().catch((error) => {

@@ -50,8 +50,7 @@ abstract contract Tickets is Initializable, ITickets {
 
     // The `Ticket` event signature is given by:
     // `keccak256(bytes("Ticket(address,uint256)"))`.
-    bytes32 private constant _TICKET_EVENT_SIGNATURE =
-        0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
+    // bytes32 private constant _TICKET_EVENT_SIGNATURE = 0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
 
     // =============================================================
     //                          CONSTRUCTOR
@@ -328,20 +327,20 @@ abstract contract Tickets is Initializable, ITickets {
             uint256 end = startTicketId + quantity;
             uint256 ticketId = startTicketId;
 
-            do {
+            /*do {
                 assembly {
                     // Emit the `Ticket` event.
                     log3(
                         0, // Start of data (0, since no data).
                         0, // End of data (0, since no data).
-                        _TICKET_EVENT_SIGNATURE, // Signature.
+                        0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb, // Signature.
                         toMasked, // `owner`.
                         ticketId // `ticketId`.
                     )
                 }
                 // The `!=` check ensures that large values of `quantity`
                 // that overflows uint256 will make the loop run out of gas.
-            } while (++ticketId != end);
+            } while (++ticketId != end);*/
 
             TicketsStorage.layout()._currentIndex = end;
         }
