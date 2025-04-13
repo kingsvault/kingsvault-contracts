@@ -61,8 +61,9 @@ interface IKingsVaultCards {
         bool _buybackStarted; // If true, users can sell their cards back to the contract.
         bool _drawStarted; // If true, the lucky draw process has begun.
         bool _winnersAwarded; // If true, winners for the main prize(s) have already been selected.
-        address _teamWallet; // Address that receives team funds and rewards.
-        address _usdt; // USDT token address (assumed 18 decimals) used for payments.
+    }
+
+    struct CounterStorage {
         uint256 _buyers; // Number of unique buyers who purchased cards.
         uint256 _ticketsForCertificate; // A special cutoff of tickets for certain "certificate" draws (first 1000 buyers).
         uint256 _totalRaised; // Total USDT raised from the primary sale.
@@ -89,11 +90,6 @@ interface IKingsVaultCards {
     // ──────────────────────────────────────────────────────────────────────
     //                                EVENTS
     // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * @dev Emitted when the team wallet address changes from `prev` to `next`.
-     */
-    event TeamWalletChanged(address indexed prev, address indexed next);
 
     /**
      * @dev Emitted when an admin is added or removed.

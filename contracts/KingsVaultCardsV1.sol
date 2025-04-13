@@ -53,6 +53,20 @@ contract KingsVaultCardsV1 is
     }
 
     /**
+     * @dev Returns a pointer to the CounterStorage struct in storage.
+     */
+    function _getCounterStorage()
+        private
+        pure
+        returns (CounterStorage storage $)
+    {
+        // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.counter")) - 1)) & ~bytes32(uint256(0xff))
+        assembly {
+            $.slot := 0x40fa8b772f9360dea45857f7caa42805cf5c48a83c52931d8ed033d331886f00
+        }
+    }
+
+    /**
      * @dev Returns a pointer to the UsersStorage struct in storage.
      */
     function _getUsersStorage() private pure returns (UsersStorage storage $) {
@@ -75,14 +89,10 @@ contract KingsVaultCardsV1 is
      * @notice Contract initializer (replaces constructor for upgradeable pattern).
      * @dev Sets up the initial state, including pricing, referral percentage, and initial roles.
      * @param initialOwner_    First owner / admin of the contract.
-     * @param usdt_            ERC‑20 USDT token address used for payments.
-     * @param teamWallet_      Address that will receive funds and hold the main wallet privileges.
      * @param vrfCoordinator_  Chainlink VRF coordinator address.
      */
     function initialize(
         address initialOwner_,
-        address usdt_,
-        address teamWallet_,
         address vrfCoordinator_
     ) public virtual initializer {
         // -------------------------- OZ initializers ----------------------
@@ -101,25 +111,20 @@ contract KingsVaultCardsV1 is
         __TicketsQueryable_init();
         __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
 
-        // ---------------------------- Storage ----------------------------
-        StateStorage storage state = _getStateStorage();
-
-        state._usdt = usdt_;
-
-        if (teamWallet_ == address(0)) {
-            revert ZeroTeamWallet();
-        }
-        emit TeamWalletChanged(state._teamWallet, teamWallet_);
-        state._teamWallet = teamWallet_;
-
         // --------------------------- Admin set‑up ------------------------
-        UsersStorage storage uStore = _getUsersStorage();
-        uStore._admin[initialOwner_] = true;
+        _getUsersStorage()._admin[initialOwner_] = true;
         emit AdminChanged(initialOwner_, true);
     }
 
-    // uint96
-    function _fenominator() internal pure returns (uint256) {
+    function _usdt() private pure returns (IERC20) {
+        return IERC20(address(0)); // TODO
+    }
+
+    function _teamWallet() private pure returns (address) {
+        return address(0); // TODO
+    }
+
+    function _fenominator() private pure returns (uint256) {
         return 10_000;
     }
 
@@ -165,7 +170,7 @@ contract KingsVaultCardsV1 is
     }
 
     function _totalRaised() private view returns (uint256) {
-        return _getStateStorage()._totalRaised;
+        return _getCounterStorage()._totalRaised;
     }
 
     /**
@@ -196,6 +201,13 @@ contract KingsVaultCardsV1 is
      */
     function getState() external pure returns (StateStorage memory) {
         return _getStateStorage();
+    }
+
+    /**
+     * @notice Returns a copy of the contract's CounterStorage struct.
+     */
+    function getCounter() external pure returns (CounterStorage memory) {
+        return _getCounterStorage();
     }
 
     /**
@@ -279,8 +291,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the primary sale has been stopped.
      */
     modifier thenSaleStopped() {
-        StateStorage memory state = _getStateStorage();
-        if (!state._saleStopped) {
+        if (!_getStateStorage()._saleStopped) {
             revert SaleMustBeStopped();
         }
         _;
@@ -290,8 +301,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the primary sale is still ongoing.
      */
     modifier thenSaleNotStopped() {
-        StateStorage memory state = _getStateStorage();
-        if (state._saleStopped) {
+        if (_getStateStorage()._saleStopped) {
             revert SaleAlreadyStopped();
         }
         _;
@@ -302,8 +312,7 @@ contract KingsVaultCardsV1 is
      *         Once stopped, it cannot be restarted.
      */
     function stopSale() external thenSaleNotStopped onlyOwner {
-        StateStorage storage state = _getStateStorage();
-        state._saleStopped = true;
+        _getStateStorage()._saleStopped = true;
         emit SaleStopped();
     }
 
@@ -350,26 +359,22 @@ contract KingsVaultCardsV1 is
             revert ZeroQuantity();
         }
 
-        StateStorage storage state = _getStateStorage();
+        CounterStorage storage counter = _getCounterStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
         // Calculate total cost and pull USDT from buyer
         uint256 cost = _carPrice(tier) * qty;
-        bool success = IERC20(state._usdt).transferFrom(
-            _msgSender(),
-            address(this),
-            cost
-        );
+        bool success = _usdt().transferFrom(_msgSender(), address(this), cost);
         if (!success) {
             revert PaymentFailed();
         }
 
         // Increment buyer count if this is the user's first purchase
         if (uStore._user[to]._spent == 0) {
-            state._buyers++;
+            counter._buyers++;
         }
 
-        state._totalRaised += cost;
+        counter._totalRaised += cost;
         uint256 refRewards = _doRefRewards(to, ref, cost);
         _doTeamRewards(to, cost, refRewards);
         uStore._user[to]._spent += cost;
@@ -384,8 +389,8 @@ contract KingsVaultCardsV1 is
         _mintTickets(to, newTickets);
 
         // Track a special cutoff (1000 initial buyers) for an extra certificate draw
-        if (state._buyers <= 1000) {
-            state._ticketsForCertificate = _ticketsTotal();
+        if (counter._buyers <= 1000) {
+            counter._ticketsForCertificate = _ticketsTotal();
         }
 
         emit Purchase(to, tier, qty, newTickets);
@@ -400,7 +405,7 @@ contract KingsVaultCardsV1 is
         address ref,
         uint256 cost
     ) private returns (uint256 refRewards) {
-        StateStorage storage state = _getStateStorage();
+        CounterStorage storage counter = _getCounterStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
         // If user has an existing referrer, override the provided `ref`
@@ -423,12 +428,12 @@ contract KingsVaultCardsV1 is
 
         // Calculate 5% referral reward
         refRewards = _calculateRefRewards(cost);
-        state._totalRefRewards += refRewards;
+        counter._totalRefRewards += refRewards;
 
         emit RefRewardsAccrued(ref, buyer, refRewards);
 
         // If we haven't reached the first milestone, store rewards in user’s account
-        if (state._totalRaised < _target(0)) {
+        if (_totalRaised() < _target(0)) {
             uStore._user[ref]._refRewards += refRewards;
             return refRewards;
         }
@@ -440,7 +445,7 @@ contract KingsVaultCardsV1 is
             uStore._user[ref]._refRewards = 0;
         }
 
-        state._totalRefRewardsClaimed += sendAmount;
+        counter._totalRefRewardsClaimed += sendAmount;
         _sendUsdt(ref, sendAmount);
         emit RefRewardsClaimed(ref, sendAmount);
 
@@ -456,17 +461,18 @@ contract KingsVaultCardsV1 is
         uint256 cost,
         uint256 refRewards
     ) private returns (uint256 teamRewards) {
-        StateStorage storage state = _getStateStorage();
+        CounterStorage storage counter = _getCounterStorage();
 
-        address teamWallet = state._teamWallet;
+        address teamWallet = _teamWallet();
+        uint256 totalRaised = _totalRaised();
 
         // If final target isn't reached, team gets 20% minus 5% referral => 15%.
         // If final target was reached mid-transaction, partial calculations are made.
-        if (state._totalRaised < _target(2)) {
+        if (totalRaised < _target(2)) {
             teamRewards = _calculateTeamRewardsRaw(cost) - refRewards; // 20% minus referral
-        } else if ((state._totalRaised - cost) < _target(2)) {
+        } else if ((totalRaised - cost) < _target(2)) {
             // If the transaction itself crossed the last milestone boundary, do partial distribution
-            uint256 extra = state._totalRaised - _target(2);
+            uint256 extra = totalRaised - _target(2);
             uint256 targetDelta = cost - extra;
             teamRewards =
                 _calculateTeamRewardsRaw(targetDelta) +
@@ -480,19 +486,19 @@ contract KingsVaultCardsV1 is
         emit TeamRewardsAccrued(teamWallet, buyer, teamRewards);
 
         // If we haven't reached the first milestone, store team rewards on contract
-        if (state._totalRaised < _target(0)) {
-            state._totalTeamRewards += teamRewards;
+        if (totalRaised < _target(0)) {
+            counter._totalTeamRewards += teamRewards;
             return teamRewards;
         }
 
         // Otherwise, pay out immediately
         uint256 sendAmount = teamRewards;
-        if (state._totalTeamRewards > 0) {
-            sendAmount += state._totalTeamRewards;
-            state._totalTeamRewards = 0;
+        if (counter._totalTeamRewards > 0) {
+            sendAmount += counter._totalTeamRewards;
+            counter._totalTeamRewards = 0;
         }
 
-        state._totalTeamRewardsClaimed += sendAmount;
+        counter._totalTeamRewardsClaimed += sendAmount;
         _sendUsdt(teamWallet, sendAmount);
         emit TeamRewardsClaimed(teamWallet, sendAmount);
 
@@ -504,8 +510,7 @@ contract KingsVaultCardsV1 is
      *      Reverts if the transfer fails.
      */
     function _sendUsdt(address to, uint256 amount) private {
-        StateStorage memory state = _getStateStorage();
-        bool success = IERC20(state._usdt).transfer(to, amount);
+        bool success = _usdt().transfer(to, amount);
         if (!success) {
             revert USDTTransferFailed();
         }
@@ -534,10 +539,10 @@ contract KingsVaultCardsV1 is
      * @dev Determines which token ID corresponds to the "car" or main prize certificate,
      *      based on how much total funding was raised.
      */
-    function _getWinnerTokenId() private pure returns (uint256) {
-        StateStorage memory state = _getStateStorage();
-        if (state._totalRaised >= _target(2)) return 16;
-        else if (state._totalRaised >= _target(1)) return 15;
+    function _getWinnerTokenId() private view returns (uint256) {
+        uint256 totalRaised = _totalRaised();
+        if (totalRaised >= _target(2)) return 16;
+        else if (totalRaised >= _target(1)) return 15;
         else return 14;
     }
 
@@ -545,8 +550,7 @@ contract KingsVaultCardsV1 is
      * @dev Only executes once we've reached the minimum milestone target.
      */
     modifier thenMilestoneReached() {
-        StateStorage memory state = _getStateStorage();
-        if (state._totalRaised < _target(0)) {
+        if (_totalRaised() < _target(0)) {
             revert MilestoneNotReached();
         }
         _;
@@ -556,8 +560,7 @@ contract KingsVaultCardsV1 is
      * @dev Only executes if we haven't yet reached the minimum milestone target.
      */
     modifier thenMilestoneNotReached() {
-        StateStorage memory state = _getStateStorage();
-        if (state._totalRaised >= _target(0)) {
+        if (_totalRaised() >= _target(0)) {
             revert MilestoneReached();
         }
         _;
@@ -590,13 +593,12 @@ contract KingsVaultCardsV1 is
      * @dev Internal routine to finalize referral rewards payout to a specific address.
      */
     function _claimRefRewardsTo(address to) private {
-        StateStorage storage state = _getStateStorage();
         UsersStorage storage uStore = _getUsersStorage();
 
         uint256 amount = uStore._user[to]._refRewards;
         if (amount > 0) {
             uStore._user[to]._refRewards = 0;
-            state._totalRefRewardsClaimed += amount;
+            _getCounterStorage()._totalRefRewardsClaimed += amount;
             _sendUsdt(to, amount);
             emit RefRewardsClaimed(to, amount);
         }
@@ -607,48 +609,34 @@ contract KingsVaultCardsV1 is
     // ---------------------------------------------------------------------
 
     /**
-     * @notice Updates the team wallet address. Cannot be set to zero address.
-     * @param teamWallet_ The new address for the team wallet.
-     */
-    function setTeamWallet(address teamWallet_) external onlyOwner {
-        if (teamWallet_ == address(0)) {
-            revert ZeroTeamWallet();
-        }
-
-        StateStorage storage state = _getStateStorage();
-        emit TeamWalletChanged(state._teamWallet, teamWallet_);
-        state._teamWallet = teamWallet_;
-    }
-
-    /**
      * @notice Withdraws any unclaimed portion of the funds to the team wallet, once the minimum milestone is met.
      *         Calculation accounts for the part reserved for the main car prize.
      */
     function withdraw() external thenMilestoneReached onlyOwner {
-        StateStorage storage state = _getStateStorage();
+        CounterStorage storage counter = _getCounterStorage();
 
-        address teamWallet = state._teamWallet;
+        address teamWallet = _teamWallet();
 
         // The total referral rewards (claimed + unclaimed)
-        uint256 refRewards = state._totalRefRewardsClaimed +
-            state._totalRefRewards;
+        uint256 refRewards = counter._totalRefRewardsClaimed +
+            counter._totalRefRewards;
 
         // The "carPrice" depends on which milestone the totalRaised has passed.
         uint256 carPrice = _getCarPrice();
         uint256 extra = 0;
-        if (state._saleStopped) {
+        if (_getStateStorage()._saleStopped) {
             // If sale is stopped, leftover beyond carPrice can be withdrawn
-            extra = state._totalRaised - carPrice;
+            extra = _totalRaised() - carPrice;
         }
 
         // Team gets 20% of the carPrice plus any leftover, minus the portion already claimed by ref + team
         uint256 sendAmount = _calculateTeamRewardsRaw(carPrice) +
             extra -
             refRewards -
-            state._totalTeamRewardsClaimed;
+            counter._totalTeamRewardsClaimed;
 
-        state._totalTeamRewards = 0;
-        state._totalTeamRewardsClaimed += sendAmount;
+        counter._totalTeamRewards = 0;
+        counter._totalTeamRewardsClaimed += sendAmount;
         _sendUsdt(teamWallet, sendAmount);
         emit TeamRewardsClaimed(teamWallet, sendAmount);
     }
@@ -676,8 +664,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the buyback phase is started.
      */
     modifier thenBuybackStarted() {
-        StateStorage memory state = _getStateStorage();
-        if (!state._buybackStarted) {
+        if (!_getStateStorage()._buybackStarted) {
             revert BuybackMustBeStarted();
         }
         _;
@@ -687,8 +674,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the buyback phase has not yet started.
      */
     modifier thenBuybackNotStarted() {
-        StateStorage memory state = _getStateStorage();
-        if (state._buybackStarted) {
+        if (_getStateStorage()._buybackStarted) {
             revert BuybackAlreadyStarted();
         }
         _;
@@ -706,8 +692,7 @@ contract KingsVaultCardsV1 is
         thenMilestoneNotReached
         onlyOwner
     {
-        StateStorage storage state = _getStateStorage();
-        state._buybackStarted = true;
+        _getStateStorage()._buybackStarted = true;
         emit BuybackStarted();
     }
 
@@ -764,8 +749,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the lucky draw has been started.
      */
     modifier thenDrawStarted() {
-        StateStorage memory state = _getStateStorage();
-        if (!state._drawStarted) {
+        if (!_getStateStorage()._drawStarted) {
             revert DrawMustBeStarted();
         }
         _;
@@ -775,8 +759,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures the lucky draw is not yet started.
      */
     modifier thenDrawNotStarted() {
-        StateStorage memory state = _getStateStorage();
-        if (state._drawStarted) {
+        if (_getStateStorage()._drawStarted) {
             revert DrawAlreadyStarted();
         }
         _;
@@ -794,8 +777,7 @@ contract KingsVaultCardsV1 is
         thenMilestoneReached
         onlyOwner
     {
-        StateStorage storage state = _getStateStorage();
-        state._drawStarted = true;
+        _getStateStorage()._drawStarted = true;
         emit DrawStarted();
     }
 
@@ -803,8 +785,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures that winners have already been awarded (for post-draw actions).
      */
     modifier thenWinnersAwarded() {
-        StateStorage memory state = _getStateStorage();
-        if (!state._winnersAwarded) {
+        if (!_getStateStorage()._winnersAwarded) {
             revert WinnersNotAwarded();
         }
         _;
@@ -814,8 +795,7 @@ contract KingsVaultCardsV1 is
      * @dev Ensures that winners have NOT yet been awarded (for winner selection).
      */
     modifier thenWinnersNotAwarded() {
-        StateStorage memory state = _getStateStorage();
-        if (state._winnersAwarded) {
+        if (_getStateStorage()._winnersAwarded) {
             revert WinnersAlreadyAwarded();
         }
         _;
@@ -866,9 +846,7 @@ contract KingsVaultCardsV1 is
      * @notice Allows the owner to withdraw the portion of the "car" prize if it remains unclaimed, after winners are chosen.
      */
     function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
-        StateStorage memory state = _getStateStorage();
-
-        address teamWallet = state._teamWallet;
+        address teamWallet = _teamWallet();
 
         uint256 sendAmount = _calculateCarPrice(_getCarPrice());
         _sendUsdt(teamWallet, sendAmount);
@@ -884,8 +862,6 @@ contract KingsVaultCardsV1 is
         uint256 /*requestId*/,
         uint256[] memory randomWords
     ) internal override thenDrawStarted thenWinnersNotAwarded {
-        StateStorage storage state = _getStateStorage();
-
         address[] memory winners = new address[](4);
         uint256 winnersCounter = 0;
         uint256 iteration = 0;
@@ -900,7 +876,7 @@ contract KingsVaultCardsV1 is
                 : _getWinnerTokenId();
 
             uint256 divider = winnersCounter < 3
-                ? state._ticketsForCertificate
+                ? _getCounterStorage()._ticketsForCertificate
                 : _ticketsTotal();
 
             uint256 ticketId = uint256(
@@ -925,7 +901,7 @@ contract KingsVaultCardsV1 is
             }
             iteration++;
         }
-        state._winnersAwarded = true;
+        _getStateStorage()._winnersAwarded = true;
     }
 
     /**
