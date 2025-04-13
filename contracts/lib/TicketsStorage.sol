@@ -31,14 +31,10 @@ library TicketsStorage {
         mapping(address => uint256) _packedAddressData;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.Tickets")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant STORAGE_SLOT =
-        0xe4d3b7f8a8cf6ee3d811516e71f399987a0e9cce9f21ebbe6298a85ee76e5600;
-
     function layout() internal pure returns (Layout storage l) {
-        bytes32 slot = STORAGE_SLOT;
+        // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.Tickets")) - 1)) & ~bytes32(uint256(0xff))
         assembly {
-            l.slot := slot
+            l.slot := 0xe4d3b7f8a8cf6ee3d811516e71f399987a0e9cce9f21ebbe6298a85ee76e5600
         }
     }
 }

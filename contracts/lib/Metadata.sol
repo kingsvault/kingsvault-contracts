@@ -33,13 +33,6 @@ abstract contract Metadata is
     }
 
     /**
-     * @dev Storage slot constant for MetadataStorage, computed using keccak256.
-     * keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.metadata")) - 1)) & ~bytes32(uint256(0xff))
-     */
-    bytes32 private constant MetadataStorageLocation =
-        0xcc940b55fd63d6ffbe37b3e06982f371d55299a99d110340df096abb3f7ed400;
-
-    /**
      * @dev Internal function to retrieve MetadataStorage struct from storage slot.
      */
     function _getMetadataStorage()
@@ -47,13 +40,11 @@ abstract contract Metadata is
         pure
         returns (MetadataStorage storage $)
     {
+        //  keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.metadata")) - 1)) & ~bytes32(uint256(0xff))
         assembly {
-            $.slot := MetadataStorageLocation
+            $.slot := 0xcc940b55fd63d6ffbe37b3e06982f371d55299a99d110340df096abb3f7ed400
         }
     }
-
-    /// @dev Emitted when the contract URI is updated.
-    event ContractURIUpdated(string prevURI, string newURI);
 
     /**
      * @dev Initializes metadata-related values.
@@ -102,38 +93,40 @@ abstract contract Metadata is
             address implementation
         )
     {
-        // @openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol
-        bytes32 ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
         return (
             _getInitializedVersion(),
-            StorageSlot.getAddressSlot(ADMIN_SLOT).value,
-            StorageSlot.getAddressSlot(IMPLEMENTATION_SLOT).value
+            StorageSlot
+                .getAddressSlot(
+                    0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+                )
+                .value,
+            StorageSlot
+                .getAddressSlot(
+                    0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+                )
+                .value
         );
     }
 
     /**
      * @dev Returns the token collection name.
      */
-    function name() external pure returns (string memory) {
-        MetadataStorage memory $ = _getMetadataStorage();
-        return $._name;
+    function name() external view returns (string memory) {
+        return _getMetadataStorage()._name;
     }
 
     /**
      * @dev Returns the token collection symbol.
      */
-    function symbol() external pure returns (string memory) {
-        MetadataStorage memory $ = _getMetadataStorage();
-        return $._symbol;
+    function symbol() external view returns (string memory) {
+        return _getMetadataStorage()._symbol;
     }
 
     /**
      * @dev Returns the base URI for metadata.
      */
-    function baseURI() external pure returns (string memory) {
-        MetadataStorage memory $ = _getMetadataStorage();
-        return $._baseURI;
+    function baseURI() external view returns (string memory) {
+        return _getMetadataStorage()._baseURI;
     }
 
     /**
@@ -141,20 +134,17 @@ abstract contract Metadata is
      * @param newuri New base URI.
      */
     function setBaseURI(string memory newuri) external onlyOwner {
-        string memory prev = contractURI();
-        MetadataStorage storage $ = _getMetadataStorage();
-        $._baseURI = newuri;
-        emit ContractURIUpdated(prev, contractURI());
+        _getMetadataStorage()._baseURI = newuri;
     }
 
     /**
      * @dev Returns the full contract URI based on the base URI.
      */
-    function contractURI() public pure returns (string memory) {
-        MetadataStorage memory $ = _getMetadataStorage();
+    function contractURI() external view returns (string memory) {
+        string memory _baseURI = _getMetadataStorage()._baseURI;
         return
-            bytes($._baseURI).length > 0
-                ? string.concat($._baseURI, "contract.json")
+            bytes(_baseURI).length > 0
+                ? string.concat(_baseURI, "contract.json")
                 : "";
     }
 
@@ -162,15 +152,13 @@ abstract contract Metadata is
      * @dev Returns the metadata URI for a given token ID.
      * @param tokenId Token ID for which to retrieve metadata URI.
      */
-    function uri(
-        uint256 tokenId
-    ) public view virtual override returns (string memory) {
-        MetadataStorage memory $ = _getMetadataStorage();
+    function uri(uint256 tokenId) external view returns (string memory) {
+        string memory _baseURI = _getMetadataStorage()._baseURI;
         return
-            bytes($._baseURI).length > 0
+            bytes(_baseURI).length > 0
                 ? string(
                     abi.encodePacked(
-                        $._baseURI,
+                        _baseURI,
                         Strings.toString(tokenId),
                         ".json"
                     )

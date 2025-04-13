@@ -29,40 +29,31 @@ abstract contract ERC1155Upgradeable is
     using Arrays for uint256[];
     using Arrays for address[];
 
+    /// @dev Tokens are not transferable.
+    error TokensNotTransferable();
+
     /// @custom:storage-location erc7201:openzeppelin.storage.ERC1155
     struct ERC1155Storage {
         mapping(uint256 id => mapping(address account => uint256)) _balances;
         mapping(address account => mapping(address operator => bool)) _operatorApprovals;
-        // Used as the URI for all token types by relying on ID substitution, e.g. https://token-cdn-domain/{id}.json
-        string _uri;
     }
-
-    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC1155")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant ERC1155StorageLocation =
-        0x88be536d5240c274a3b1d3a1be54482fd9caa294f08c62a7cde569f49a3c4500;
 
     function _getERC1155Storage()
         private
         pure
         returns (ERC1155Storage storage $)
     {
+        // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC1155")) - 1)) & ~bytes32(uint256(0xff))
         assembly {
-            $.slot := ERC1155StorageLocation
+            $.slot := 0x88be536d5240c274a3b1d3a1be54482fd9caa294f08c62a7cde569f49a3c4500
         }
     }
 
-    /**
-     * @dev See {_setURI}.
-     */
-    function __ERC1155_init(string memory uri_) internal onlyInitializing {
-        __ERC1155_init_unchained(uri_);
+    function __ERC1155_init() internal onlyInitializing {
+        __ERC1155_init_unchained();
     }
 
-    function __ERC1155_init_unchained(
-        string memory uri_
-    ) internal onlyInitializing {
-        _setURI(uri_);
-    }
+    function __ERC1155_init_unchained() internal onlyInitializing {}
 
     /**
      * @dev See {IERC165-supportsInterface}.
@@ -74,21 +65,6 @@ abstract contract ERC1155Upgradeable is
             interfaceId == type(IERC1155).interfaceId ||
             interfaceId == type(IERC1155MetadataURI).interfaceId ||
             super.supportsInterface(interfaceId);
-    }
-
-    /**
-     * @dev See {IERC1155MetadataURI-uri}.
-     *
-     * This implementation returns the same URI for *all* token types. It relies
-     * on the token type ID substitution mechanism
-     * https://eips.ethereum.org/EIPS/eip-1155#metadata[defined in the ERC].
-     *
-     * Clients calling this function must replace the `\{id\}` substring with the
-     * actual token type ID.
-     */
-    function uri(uint256 /* id */) public view virtual returns (string memory) {
-        ERC1155Storage storage $ = _getERC1155Storage();
-        return $._uri;
     }
 
     /**
@@ -129,11 +105,12 @@ abstract contract ERC1155Upgradeable is
         return batchBalances;
     }
 
-    /**
-     * @dev See {IERC1155-setApprovalForAll}.
-     */
-    function setApprovalForAll(address operator, bool approved) public virtual {
-        _setApprovalForAll(_msgSender(), operator, approved);
+    /// @dev Tokens are not transferable.
+    function setApprovalForAll(
+        address /*operator*/,
+        bool /*approved*/
+    ) external pure {
+        revert TokensNotTransferable();
     }
 
     /**
@@ -147,38 +124,26 @@ abstract contract ERC1155Upgradeable is
         return $._operatorApprovals[account][operator];
     }
 
-    /**
-     * @dev See {IERC1155-safeTransferFrom}.
-     */
+    /// @dev Tokens are not transferable.
     function safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 value,
-        bytes memory data
-    ) public virtual {
-        address sender = _msgSender();
-        if (from != sender && !isApprovedForAll(from, sender)) {
-            revert ERC1155MissingApprovalForAll(sender, from);
-        }
-        _safeTransferFrom(from, to, id, value, data);
+        address /*from*/,
+        address /*to*/,
+        uint256 /*id*/,
+        uint256 /*value*/,
+        bytes memory /*data*/
+    ) external pure {
+        revert TokensNotTransferable();
     }
 
-    /**
-     * @dev See {IERC1155-safeBatchTransferFrom}.
-     */
+    /// @dev Tokens are not transferable.
     function safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory values,
-        bytes memory data
-    ) public virtual {
-        address sender = _msgSender();
-        if (from != sender && !isApprovedForAll(from, sender)) {
-            revert ERC1155MissingApprovalForAll(sender, from);
-        }
-        _safeBatchTransferFrom(from, to, ids, values, data);
+        address /*from*/,
+        address /*to*/,
+        uint256[] memory /*ids*/,
+        uint256[] memory /*values*/,
+        bytes memory /*data*/
+    ) external pure {
+        revert TokensNotTransferable();
     }
 
     /**
@@ -286,89 +251,6 @@ abstract contract ERC1155Upgradeable is
     }
 
     /**
-     * @dev Transfers a `value` tokens of token type `id` from `from` to `to`.
-     *
-     * Emits a {TransferSingle} event.
-     *
-     * Requirements:
-     *
-     * - `to` cannot be the zero address.
-     * - `from` must have a balance of tokens of type `id` of at least `value` amount.
-     * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155Received} and return the
-     * acceptance magic value.
-     */
-    function _safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 value,
-        bytes memory data
-    ) internal {
-        if (to == address(0)) {
-            revert ERC1155InvalidReceiver(address(0));
-        }
-        if (from == address(0)) {
-            revert ERC1155InvalidSender(address(0));
-        }
-        (uint256[] memory ids, uint256[] memory values) = _asSingletonArrays(
-            id,
-            value
-        );
-        _updateWithAcceptanceCheck(from, to, ids, values, data);
-    }
-
-    /**
-     * @dev xref:ROOT:erc1155.adoc#batch-operations[Batched] version of {_safeTransferFrom}.
-     *
-     * Emits a {TransferBatch} event.
-     *
-     * Requirements:
-     *
-     * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155BatchReceived} and return the
-     * acceptance magic value.
-     * - `ids` and `values` must have the same length.
-     */
-    function _safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory values,
-        bytes memory data
-    ) internal {
-        if (to == address(0)) {
-            revert ERC1155InvalidReceiver(address(0));
-        }
-        if (from == address(0)) {
-            revert ERC1155InvalidSender(address(0));
-        }
-        _updateWithAcceptanceCheck(from, to, ids, values, data);
-    }
-
-    /**
-     * @dev Sets a new URI for all token types, by relying on the token type ID
-     * substitution mechanism
-     * https://eips.ethereum.org/EIPS/eip-1155#metadata[defined in the ERC].
-     *
-     * By this mechanism, any occurrence of the `\{id\}` substring in either the
-     * URI or any of the values in the JSON file at said URI will be replaced by
-     * clients with the token type ID.
-     *
-     * For example, the `https://token-cdn-domain/\{id\}.json` URI would be
-     * interpreted by clients as
-     * `https://token-cdn-domain/000000000000000000000000000000000000000000000000000000000004cce0.json`
-     * for token type ID 0x4cce0.
-     *
-     * See {uri}.
-     *
-     * Because these URIs cannot be meaningfully represented by the {URI} event,
-     * this function emits no events.
-     */
-    function _setURI(string memory newuri) internal virtual {
-        ERC1155Storage storage $ = _getERC1155Storage();
-        $._uri = newuri;
-    }
-
-    /**
      * @dev Creates a `value` amount of tokens of type `id`, and assigns them to `to`.
      *
      * Emits a {TransferSingle} event.
@@ -460,28 +342,6 @@ abstract contract ERC1155Upgradeable is
             revert ERC1155InvalidSender(address(0));
         }
         _updateWithAcceptanceCheck(from, address(0), ids, values, "");
-    }
-
-    /**
-     * @dev Approve `operator` to operate on all of `owner` tokens
-     *
-     * Emits an {ApprovalForAll} event.
-     *
-     * Requirements:
-     *
-     * - `operator` cannot be the zero address.
-     */
-    function _setApprovalForAll(
-        address owner,
-        address operator,
-        bool approved
-    ) internal virtual {
-        ERC1155Storage storage $ = _getERC1155Storage();
-        if (operator == address(0)) {
-            revert ERC1155InvalidOperator(address(0));
-        }
-        $._operatorApprovals[owner][operator] = approved;
-        emit ApprovalForAll(owner, operator, approved);
     }
 
     /**

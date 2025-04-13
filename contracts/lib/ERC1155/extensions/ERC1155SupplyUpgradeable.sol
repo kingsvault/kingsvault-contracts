@@ -32,17 +32,14 @@ abstract contract ERC1155SupplyUpgradeable is
         uint256 _totalSupplyAll;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC1155Supply")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant ERC1155SupplyStorageLocation =
-        0x4a593662ee04d27b6a00ebb31be7fe0c102c2ade82a7c5d764f2df05dc4e2800;
-
     function _getERC1155SupplyStorage()
         private
         pure
         returns (ERC1155SupplyStorage storage $)
     {
+        // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC1155Supply")) - 1)) & ~bytes32(uint256(0xff))
         assembly {
-            $.slot := ERC1155SupplyStorageLocation
+            $.slot := 0x4a593662ee04d27b6a00ebb31be7fe0c102c2ade82a7c5d764f2df05dc4e2800
         }
     }
 

@@ -14,28 +14,22 @@ import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/inter
  * Original file chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol
  */
 abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
+    /// @dev Error thrown when a non-coordinator address attempts to fulfill randomness.
+    error OnlyCoordinatorCanFulfill(address have, address want);
+
     struct VrfStorage {
         address _vrfCoordinator; // Address of the Chainlink VRF Coordinator contract
     }
 
     /**
-     * @dev Storage slot for VRF configuration using a deterministic location.
-     * keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.vrf")) - 1)) & ~bytes32(uint256(0xff))
-     */
-    bytes32 private constant VrfStorageLocation =
-        0x2168c89e472257df265406ae281e71a9a09e0b3846f5d33f67a174b58c0b4d00;
-
-    /**
      * @dev Retrieves the storage struct for VRF configuration using assembly.
      */
     function _getVrfStorage() private pure returns (VrfStorage storage $) {
+        // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.vrf")) - 1)) & ~bytes32(uint256(0xff))
         assembly {
-            $.slot := VrfStorageLocation
+            $.slot := 0x2168c89e472257df265406ae281e71a9a09e0b3846f5d33f67a174b58c0b4d00
         }
     }
-
-    /// @dev Error thrown when a non-coordinator address attempts to fulfill randomness.
-    error OnlyCoordinatorCanFulfill(address have, address want);
 
     /**
      * @dev Initializes the VRFConsumerBaseV2 contract.
@@ -54,16 +48,14 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
     function __VRFConsumerBaseV2_init_unchained(
         address vrfCoordinator_
     ) internal onlyInitializing {
-        VrfStorage storage $ = _getVrfStorage();
-        $._vrfCoordinator = vrfCoordinator_;
+        _getVrfStorage()._vrfCoordinator = vrfCoordinator_;
     }
 
     /**
      * @dev Returns the address of the VRF Coordinator.
      */
-    function getVrfCoordinator() public pure returns (address) {
-        VrfStorage memory $ = _getVrfStorage();
-        return $._vrfCoordinator;
+    function getVrfCoordinator() public view returns (address) {
+        return _getVrfStorage()._vrfCoordinator;
     }
 
     /**
@@ -71,8 +63,7 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
      * @param vrfCoordinator_ New address of the VRF Coordinator.
      */
     function setVrfCoordinator(address vrfCoordinator_) external onlyOwner {
-        VrfStorage storage $ = _getVrfStorage();
-        $._vrfCoordinator = vrfCoordinator_;
+        _getVrfStorage()._vrfCoordinator = vrfCoordinator_;
     }
 
     /**
