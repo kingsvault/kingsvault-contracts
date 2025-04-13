@@ -334,7 +334,7 @@ abstract contract Tickets is Initializable, ITickets {
                     log3(
                         0, // Start of data (0, since no data).
                         0, // End of data (0, since no data).
-                        0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb, // Signature.
+                        _TICKET_EVENT_SIGNATURE, // Signature.
                         toMasked, // `owner`.
                         ticketId // `ticketId`.
                     )
