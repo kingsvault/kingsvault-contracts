@@ -13,8 +13,8 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 
 import {VRFConsumerBaseV2, VRFCoordinatorV2Interface} from "./lib/VRFConsumerBaseV2.sol";
 import {Metadata} from "./lib/Metadata.sol";
-import {Tickets} from "./lib/Tickets.sol";
-import {TicketsQueryable} from "./lib/TicketsQueryable.sol";
+import {Tickets} from "./lib/ERC721A/Tickets.sol";
+import {TicketsQueryable} from "./lib/ERC721A/TicketsQueryable.sol";
 import {IKingsVaultCards} from "./interfaces/IKingsVaultCards.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
