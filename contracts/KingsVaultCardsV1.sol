@@ -4,12 +4,11 @@ pragma solidity 0.8.28;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
-import {ERC1155BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
-import {ERC1155SupplyUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
+import {ERC1155Upgradeable} from "./lib/ERC1155/ERC1155Upgradeable.sol";
+import {ERC1155BurnableUpgradeable} from "./lib/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
+import {ERC1155SupplyUpgradeable} from "./lib/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
 
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
 import {VRFConsumerBaseV2, VRFCoordinatorV2Interface} from "./lib/VRFConsumerBaseV2.sol";
@@ -31,7 +30,6 @@ contract KingsVaultCardsV1 is
     ERC1155BurnableUpgradeable,
     ERC1155SupplyUpgradeable,
     OwnableUpgradeable,
-    PausableUpgradeable,
     Metadata,
     VRFConsumerBaseV2,
     ReentrancyGuardTransientUpgradeable,
@@ -41,6 +39,9 @@ contract KingsVaultCardsV1 is
     // ──────────────────────────────────────────────────────────────────────
     //                               ERRORS
     // ──────────────────────────────────────────────────────────────────────
+
+    /// @dev Tokens are not transferable.
+    error TokensNotTransferable();
 
     /// @notice Thrown when a zero address is passed for the team wallet.
     error ZeroTeamWallet();
@@ -105,10 +106,6 @@ contract KingsVaultCardsV1 is
         uint256 _totalTeamRewardsClaimed; // Amount of team rewards already claimed.
         uint256 _totalRefRewards; // Accumulated referral rewards yet to be claimed.
         uint256 _totalRefRewardsClaimed; // Amount of referral rewards already claimed.
-        uint256 _refPercentage; // Referral percentage in basis points (1/10,000).
-        uint256[] _prices; // The price in USDT (18 decimals) for each card tier.
-        uint256[] _bonusTickets; // Number of bonus raffle tickets granted per tier purchased.
-        uint256[] _targets; // Fundraising milestones (18 decimals) that unlock further features.
     }
 
     // keccak256(abi.encode(uint256(keccak256("KingsVaultCards.storage.state")) - 1)) & ~bytes32(uint256(0xff))
@@ -184,11 +181,6 @@ contract KingsVaultCardsV1 is
      * @dev Emitted when the lucky draw is started.
      */
     event DrawStarted();
-
-    /**
-     * @dev Emitted when peer-to-peer trading is enabled (unpauses transfers).
-     */
-    event TradeStarted();
 
     /**
      * @dev Emitted after a successful purchase of one or more cards, including ticket minting.
@@ -284,7 +276,6 @@ contract KingsVaultCardsV1 is
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
         __Ownable_init(initialOwner_);
-        __Pausable_init();
 
         // --------------------------- Project libs ------------------------
         __Metadata_init(
@@ -307,35 +298,75 @@ contract KingsVaultCardsV1 is
         emit TeamWalletChanged(state._teamWallet, teamWallet_);
         state._teamWallet = teamWallet_;
 
-        // Setting referral percentage to 5% (500 basis points)
-        state._refPercentage = 500;
-
-        // Price per card tier (in USDT with 18 decimals)
-        state._prices.push(5_000000000000000000);
-        state._prices.push(25_000000000000000000);
-        state._prices.push(88_000000000000000000);
-        state._prices.push(250_000000000000000000);
-
-        // Bonus tickets granted per card purchase for each tier.
-        state._bonusTickets.push(5);
-        state._bonusTickets.push(35);
-        state._bonusTickets.push(150);
-        state._bonusTickets.push(500);
-
-        // Funding milestones (18 decimals) at which different contract logic may unlock or change.
-        state._targets.push(75_000_000000000000000000);
-        state._targets.push(265_000_000000000000000000);
-        state._targets.push(350_000_000000000000000000);
-
         // --------------------------- Admin set‑up ------------------------
         UsersStorage storage uStore = _getUsersStorage();
         uStore._admin[initialOwner_] = true;
         emit AdminChanged(initialOwner_, true);
+    }
 
-        // --------------------------- Initial state -----------------------
-        // The contract starts paused, which means primary sale & transfers are restricted
-        // until the owner calls startTrade() for secondary market or modifies contract state.
-        _pause();
+    // uint96
+    function _fenominator() internal pure returns (uint256) {
+        return 10_000;
+    }
+
+    function _calculateRefRewards(
+        uint256 value
+    ) private pure returns (uint256) {
+        return (value * 500) / _fenominator();
+    }
+
+    function _calculateTeamRewardsRaw(
+        uint256 value
+    ) private pure returns (uint256) {
+        return (value * 2_000) / _fenominator();
+    }
+
+    function _calculateCarPrice(uint256 value) private pure returns (uint256) {
+        return (value * 8_000) / _fenominator();
+    }
+
+    /// @dev Bonus tickets granted per card purchase for each tier.
+    function _bonusTickets(
+        uint256 tier
+    ) private pure returns (uint256 ticketsPerTier) {
+        if (tier == 0) return 5;
+        else if (tier == 1) return 35;
+        else if (tier == 2) return 150;
+        else if (tier == 3) return 500;
+    }
+
+    /// @dev Funding milestones (18 decimals) at which different contract logic may unlock or change.
+    function _target(uint256 carId) private pure returns (uint256 target) {
+        if (carId == 0) return 75_000_000000000000000000;
+        else if (carId == 1) return 265_000_000000000000000000;
+        else if (carId == 2) return 350_000_000000000000000000;
+    }
+
+    /// @dev Price per card tier (in USDT with 18 decimals)
+    function _carPrice(uint256 tier) private pure returns (uint256 carPrice) {
+        if (tier == 0) return 5_000000000000000000;
+        else if (tier == 1) return 25_000000000000000000;
+        else if (tier == 2) return 88_000000000000000000;
+        else if (tier == 3) return 250_000000000000000000;
+    }
+
+    function _totalRaised() private view returns (uint256) {
+        return _getStateStorage()._totalRaised;
+    }
+
+    /**
+     * @dev Returns how much the "car" or main prize is set to cost, based on the highest milestone that was reached.
+     */
+    function _getCarPrice() private view returns (uint256 carPrice) {
+        uint256 totalRaised = _totalRaised();
+
+        if (totalRaised >= _target(2)) {
+            return _target(2);
+        } else if (totalRaised >= _target(1)) {
+            return _target(1);
+        } else if (totalRaised >= _target(0)) {
+            return _target(0);
+        }
     }
 
     /**
@@ -350,8 +381,7 @@ contract KingsVaultCardsV1 is
      * @notice Returns a copy of the contract's StateStorage struct.
      */
     function getState() external pure returns (StateStorage memory) {
-        StateStorage memory state = _getStateStorage();
-        return state;
+        return _getStateStorage();
     }
 
     /**
@@ -397,8 +427,7 @@ contract KingsVaultCardsV1 is
      * @param status True to grant admin, false to revoke.
      */
     function setAdmin(address wallet, bool status) external onlyOwner {
-        UsersStorage storage uStore = _getUsersStorage();
-        uStore._admin[wallet] = status;
+        _getUsersStorage()._admin[wallet] = status;
         emit AdminChanged(wallet, status);
     }
 
@@ -408,8 +437,7 @@ contract KingsVaultCardsV1 is
      * @return True if the address has admin rights, false otherwise.
      */
     function isAdmin(address wallet) external view returns (bool) {
-        UsersStorage storage uStore = _getUsersStorage();
-        return uStore._admin[wallet];
+        return _getUsersStorage()._admin[wallet];
     }
 
     /**
@@ -418,8 +446,7 @@ contract KingsVaultCardsV1 is
      * @param status True to mark as a referrer, false to revoke.
      */
     function setReferrer(address wallet, bool status) external onlyOwner {
-        UsersStorage storage uStore = _getUsersStorage();
-        uStore._referrer[wallet] = status;
+        _getUsersStorage()._referrer[wallet] = status;
         emit ReferrerChanged(wallet, status);
     }
 
@@ -429,8 +456,7 @@ contract KingsVaultCardsV1 is
      * @return True if the address is a referrer, false otherwise.
      */
     function isReferrer(address wallet) external view returns (bool) {
-        UsersStorage storage uStore = _getUsersStorage();
-        return uStore._referrer[wallet];
+        return _getUsersStorage()._referrer[wallet];
     }
 
     // ========== Sale section ==========
@@ -514,7 +540,7 @@ contract KingsVaultCardsV1 is
         UsersStorage storage uStore = _getUsersStorage();
 
         // Calculate total cost and pull USDT from buyer
-        uint256 cost = state._prices[tier] * qty;
+        uint256 cost = _carPrice(tier) * qty;
         bool success = IERC20(state._usdt).transferFrom(
             _msgSender(),
             address(this),
@@ -540,7 +566,7 @@ contract KingsVaultCardsV1 is
         }
 
         // Mint the appropriate number of bonus tickets
-        uint256 newTickets = state._bonusTickets[tier] * qty;
+        uint256 newTickets = _bonusTickets(tier) * qty;
         _mintTickets(to, newTickets);
 
         // Track a special cutoff (1000 initial buyers) for an extra certificate draw
@@ -582,13 +608,13 @@ contract KingsVaultCardsV1 is
         }
 
         // Calculate 5% referral reward
-        refRewards = (cost * 500) / 10_000;
+        refRewards = _calculateRefRewards(cost);
         state._totalRefRewards += refRewards;
 
         emit RefRewardsAccrued(ref, buyer, refRewards);
 
         // If we haven't reached the first milestone, store rewards in user’s account
-        if (state._totalRaised < state._targets[0]) {
+        if (state._totalRaised < _target(0)) {
             uStore._user[ref]._refRewards += refRewards;
             return refRewards;
         }
@@ -622,13 +648,16 @@ contract KingsVaultCardsV1 is
 
         // If final target isn't reached, team gets 20% minus 5% referral => 15%.
         // If final target was reached mid-transaction, partial calculations are made.
-        if (state._totalRaised < state._targets[2]) {
-            teamRewards = ((cost * 2_000) / 10_000) - refRewards; // 20% minus referral
-        } else if ((state._totalRaised - cost) < state._targets[2]) {
+        if (state._totalRaised < _target(2)) {
+            teamRewards = _calculateTeamRewardsRaw(cost) - refRewards; // 20% minus referral
+        } else if ((state._totalRaised - cost) < _target(2)) {
             // If the transaction itself crossed the last milestone boundary, do partial distribution
-            uint256 extra = state._totalRaised - state._targets[2];
+            uint256 extra = state._totalRaised - _target(2);
             uint256 targetDelta = cost - extra;
-            teamRewards = ((targetDelta * 2_000) / 10_000) + extra - refRewards;
+            teamRewards =
+                _calculateTeamRewardsRaw(targetDelta) +
+                extra -
+                refRewards;
         } else {
             // Past final target, team effectively gets the full cost minus referral.
             teamRewards = cost - refRewards;
@@ -637,7 +666,7 @@ contract KingsVaultCardsV1 is
         emit TeamRewardsAccrued(teamWallet, buyer, teamRewards);
 
         // If we haven't reached the first milestone, store team rewards on contract
-        if (state._totalRaised < state._targets[0]) {
+        if (state._totalRaised < _target(0)) {
             state._totalTeamRewards += teamRewards;
             return teamRewards;
         }
@@ -693,8 +722,8 @@ contract KingsVaultCardsV1 is
      */
     function _getWinnerTokenId() private pure returns (uint256) {
         StateStorage memory state = _getStateStorage();
-        if (state._totalRaised >= state._targets[2]) return 16;
-        else if (state._totalRaised >= state._targets[1]) return 15;
+        if (state._totalRaised >= _target(2)) return 16;
+        else if (state._totalRaised >= _target(1)) return 15;
         else return 14;
     }
 
@@ -703,7 +732,7 @@ contract KingsVaultCardsV1 is
      */
     modifier thenMilestoneReached() {
         StateStorage memory state = _getStateStorage();
-        if (state._totalRaised < state._targets[0]) {
+        if (state._totalRaised < _target(0)) {
             revert MilestoneNotReached();
         }
         _;
@@ -714,7 +743,7 @@ contract KingsVaultCardsV1 is
      */
     modifier thenMilestoneNotReached() {
         StateStorage memory state = _getStateStorage();
-        if (state._totalRaised >= state._targets[0]) {
+        if (state._totalRaised >= _target(0)) {
             revert MilestoneReached();
         }
         _;
@@ -799,7 +828,7 @@ contract KingsVaultCardsV1 is
         }
 
         // Team gets 20% of the carPrice plus any leftover, minus the portion already claimed by ref + team
-        uint256 sendAmount = ((carPrice * 2_000) / 10_000) +
+        uint256 sendAmount = _calculateTeamRewardsRaw(carPrice) +
             extra -
             refRewards -
             state._totalTeamRewardsClaimed;
@@ -808,21 +837,6 @@ contract KingsVaultCardsV1 is
         state._totalTeamRewardsClaimed += sendAmount;
         _sendUsdt(teamWallet, sendAmount);
         emit TeamRewardsClaimed(teamWallet, sendAmount);
-    }
-
-    /**
-     * @dev Returns how much the "car" or main prize is set to cost, based on the highest milestone that was reached.
-     */
-    function _getCarPrice() private pure returns (uint256 carPrice) {
-        StateStorage memory state = _getStateStorage();
-
-        if (state._totalRaised >= state._targets[2]) {
-            carPrice = state._targets[2];
-        } else if (state._totalRaised >= state._targets[1]) {
-            carPrice = state._targets[1];
-        } else if (state._totalRaised >= state._targets[0]) {
-            carPrice = state._targets[0];
-        }
     }
 
     /**
@@ -906,15 +920,13 @@ contract KingsVaultCardsV1 is
      *      Iterates through each token ID, burning the user's holdings and sending them the appropriate USDT refund.
      */
     function _buyback(address to) private {
-        StateStorage memory state = _getStateStorage();
-
         uint256 total = 0;
         // Tiers 0-3 correspond to token IDs [1..12]
         for (uint256 tokenId = 1; tokenId <= 12; ++tokenId) {
             uint256 balance = balanceOf(to, tokenId);
             if (balance > 0) {
                 _burn(to, tokenId, balance);
-                total += state._prices[_getTierByTokenId(tokenId)] * balance;
+                total += _carPrice(_getTierByTokenId(tokenId)) * balance;
             }
         }
 
@@ -1029,7 +1041,7 @@ contract KingsVaultCardsV1 is
             revert NotAWinner();
         }
 
-        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
+        uint256 sendAmount = _calculateCarPrice(_getCarPrice());
         _burn(sender, tokenId, balance);
         _sendUsdt(sender, sendAmount);
 
@@ -1044,7 +1056,7 @@ contract KingsVaultCardsV1 is
 
         address teamWallet = state._teamWallet;
 
-        uint256 sendAmount = ((_getCarPrice() * 8_000) / 10_000);
+        uint256 sendAmount = _calculateCarPrice(_getCarPrice());
         _sendUsdt(teamWallet, sendAmount);
 
         emit PrizeWithdrawn(teamWallet, sendAmount);
@@ -1103,21 +1115,6 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @notice Opens peer‑to‑peer transfers on the secondary market (unpauses the contract),
-     *         only after the draw is started and buyback is not used.
-     */
-    function startTrade()
-        external
-        thenSaleStopped
-        thenBuybackNotStarted
-        thenDrawStarted
-        onlyOwner
-    {
-        _unpause();
-        emit TradeStarted();
-    }
-
-    /**
      * @dev Returns the metadata URI for a given token ID, combining base URI with any override from Metadata lib.
      */
     function uri(
@@ -1129,6 +1126,26 @@ contract KingsVaultCardsV1 is
         returns (string memory)
     {
         return super.uri(tokenId);
+    }
+
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function balanceOf(
+        address account,
+        uint256 id
+    ) public view override returns (uint256) {
+        return super.balanceOf(account, id);
+    }
+
+    function balanceOfBatch(
+        address[] memory accounts,
+        uint256[] memory ids
+    ) public view override returns (uint256[] memory) {
+        return super.balanceOfBatch(accounts, ids);
     }
 
     /**
@@ -1143,29 +1160,48 @@ contract KingsVaultCardsV1 is
         super._update(from, to, ids, values);
     }
 
-    /**
-     * @dev Overridden safeTransferFrom that enforces a pause check (whenNotPaused modifier).
-     */
+    /// @dev Tokens are not transferable.
     function safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 value,
-        bytes memory data
-    ) public override whenNotPaused {
-        super.safeTransferFrom(from, to, id, value, data);
+        address /*from*/,
+        address /*to*/,
+        uint256 /*id*/,
+        uint256 /*value*/,
+        bytes memory /*data*/
+    ) public pure override {
+        revert TokensNotTransferable();
     }
 
-    /**
-     * @dev Overridden safeBatchTransferFrom that also checks pause state.
-     */
+    /// @dev Tokens are not transferable.
     function safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory values,
-        bytes memory data
-    ) public override whenNotPaused {
-        super.safeBatchTransferFrom(from, to, ids, values, data);
+        address /*from*/,
+        address /*to*/,
+        uint256[] memory /*ids*/,
+        uint256[] memory /*values*/,
+        bytes memory /*data*/
+    ) public pure override {
+        revert TokensNotTransferable();
     }
+
+    /// @dev Tokens are not transferable.
+    function isApprovedForAll(
+        address /*account*/,
+        address /*operator*/
+    ) public pure override returns (bool) {
+        return false;
+    }
+
+    /// @dev Tokens are not transferable.
+    function setApprovalForAll(
+        address /*operator*/,
+        bool /*approved*/
+    ) public pure override {
+        revert TokensNotTransferable();
+    }
+
+    /// @dev Tokens are not transferable.
+    function _setApprovalForAll(
+        address /*owner*/,
+        address /*operator*/,
+        bool /*approved*/
+    ) internal pure override {}
 }
