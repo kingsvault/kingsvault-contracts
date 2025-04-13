@@ -50,7 +50,8 @@ abstract contract Tickets is Initializable, ITickets {
 
     // The `Ticket` event signature is given by:
     // `keccak256(bytes("Ticket(address,uint256)"))`.
-    // bytes32 private constant _TICKET_EVENT_SIGNATURE = 0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
+    bytes32 private constant _TICKET_EVENT_SIGNATURE =
+        0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
 
     // =============================================================
     //                          CONSTRUCTOR
