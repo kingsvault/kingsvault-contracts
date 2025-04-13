@@ -162,7 +162,9 @@ contract KingsVaultCardsV1 is
     }
 
     /// @dev Price per card tier (in USDT with 18 decimals)
-    function _carPrice(uint256 tier) private pure returns (uint256 carPrice) {
+    function _carPriceByTier(
+        uint256 tier
+    ) private pure returns (uint256 carPrice) {
         if (tier == 0) return 5_000000000000000000;
         else if (tier == 1) return 25_000000000000000000;
         else if (tier == 2) return 88_000000000000000000;
@@ -176,7 +178,7 @@ contract KingsVaultCardsV1 is
     /**
      * @dev Returns how much the "car" or main prize is set to cost, based on the highest milestone that was reached.
      */
-    function _getCarPrice() private view returns (uint256 carPrice) {
+    function _currentCarPrice() private view returns (uint256 carPrice) {
         uint256 totalRaised = _totalRaised();
 
         if (totalRaised >= _target(2)) {
@@ -362,7 +364,7 @@ contract KingsVaultCardsV1 is
         UsersStorage storage uStore = _getUsersStorage();
 
         // Calculate total cost and pull USDT from buyer
-        uint256 cost = _carPrice(tier) * qty;
+        uint256 cost = _carPriceByTier(tier) * qty;
         bool success = _usdt().transferFrom(_msgSender(), address(this), cost);
         if (!success) {
             revert PaymentFailed();
@@ -621,7 +623,7 @@ contract KingsVaultCardsV1 is
             counter._totalRefRewards;
 
         // The "carPrice" depends on which milestone the totalRaised has passed.
-        uint256 carPrice = _getCarPrice();
+        uint256 carPrice = _currentCarPrice();
         uint256 extra = 0;
         if (_getStateStorage()._saleStopped) {
             // If sale is stopped, leftover beyond carPrice can be withdrawn
@@ -724,7 +726,7 @@ contract KingsVaultCardsV1 is
             uint256 balance = balanceOf(to, tokenId);
             if (balance > 0) {
                 _burn(to, tokenId, balance);
-                total += _carPrice(_getTierByTokenId(tokenId)) * balance;
+                total += _carPriceByTier(_getTierByTokenId(tokenId)) * balance;
             }
         }
 
@@ -834,7 +836,7 @@ contract KingsVaultCardsV1 is
             revert NotAWinner();
         }
 
-        uint256 sendAmount = _calculateCarPrice(_getCarPrice());
+        uint256 sendAmount = _calculateCarPrice(_currentCarPrice());
         _burn(sender, tokenId, balance);
         _sendUsdt(sender, sendAmount);
 
@@ -847,7 +849,7 @@ contract KingsVaultCardsV1 is
     function withdrawCarPrice() external thenWinnersAwarded onlyOwner {
         address teamWallet = _teamWallet();
 
-        uint256 sendAmount = _calculateCarPrice(_getCarPrice());
+        uint256 sendAmount = _calculateCarPrice(_currentCarPrice());
         _sendUsdt(teamWallet, sendAmount);
 
         emit PrizeWithdrawn(teamWallet, sendAmount);
