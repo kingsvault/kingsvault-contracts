@@ -46,20 +46,19 @@ abstract contract ERC1155SupplyUpgradeable is
     function __ERC1155Supply_init() internal onlyInitializing {}
 
     function __ERC1155Supply_init_unchained() internal onlyInitializing {}
+
     /**
      * @dev Total value of tokens in with a given id.
      */
     function totalSupply(uint256 id) public view virtual returns (uint256) {
-        ERC1155SupplyStorage storage $ = _getERC1155SupplyStorage();
-        return $._totalSupply[id];
+        return _getERC1155SupplyStorage()._totalSupply[id];
     }
 
     /**
      * @dev Total value of tokens.
      */
     function totalSupply() public view virtual returns (uint256) {
-        ERC1155SupplyStorage storage $ = _getERC1155SupplyStorage();
-        return $._totalSupplyAll;
+        return _getERC1155SupplyStorage()._totalSupplyAll;
     }
 
     /**

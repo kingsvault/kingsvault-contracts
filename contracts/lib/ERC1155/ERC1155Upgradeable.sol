@@ -35,7 +35,6 @@ abstract contract ERC1155Upgradeable is
     /// @custom:storage-location erc7201:openzeppelin.storage.ERC1155
     struct ERC1155Storage {
         mapping(uint256 id => mapping(address account => uint256)) _balances;
-        mapping(address account => mapping(address operator => bool)) _operatorApprovals;
     }
 
     function _getERC1155Storage()
@@ -113,15 +112,12 @@ abstract contract ERC1155Upgradeable is
         revert TokensNotTransferable();
     }
 
-    /**
-     * @dev See {IERC1155-isApprovedForAll}.
-     */
+    /// @dev Tokens are not transferable.
     function isApprovedForAll(
-        address account,
-        address operator
+        address /*account*/,
+        address /*operator*/
     ) public view virtual returns (bool) {
-        ERC1155Storage storage $ = _getERC1155Storage();
-        return $._operatorApprovals[account][operator];
+        return false;
     }
 
     /// @dev Tokens are not transferable.

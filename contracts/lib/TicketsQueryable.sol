@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import "./ITicketsQueryable.sol";
+import "../interfaces/ITicketsQueryable.sol";
 import "./Tickets.sol";
 
 /**

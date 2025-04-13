@@ -14,13 +14,14 @@ abstract contract ERC1155BurnableUpgradeable is
     Initializable,
     ERC1155Upgradeable
 {
-    function __ERC1155Burnable_init() internal onlyInitializing {}
+    function __ERC1155Burnable_init() internal onlyInitializing {
+        __ERC1155Burnable_init_unchained();
+    }
 
     function __ERC1155Burnable_init_unchained() internal onlyInitializing {}
+
     function burn(address account, uint256 id, uint256 value) public virtual {
-        if (
-            account != _msgSender() && !isApprovedForAll(account, _msgSender())
-        ) {
+        if (account != _msgSender()) {
             revert ERC1155MissingApprovalForAll(_msgSender(), account);
         }
 
@@ -32,9 +33,7 @@ abstract contract ERC1155BurnableUpgradeable is
         uint256[] memory ids,
         uint256[] memory values
     ) public virtual {
-        if (
-            account != _msgSender() && !isApprovedForAll(account, _msgSender())
-        ) {
+        if (account != _msgSender()) {
             revert ERC1155MissingApprovalForAll(_msgSender(), account);
         }
 
