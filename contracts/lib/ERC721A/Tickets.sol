@@ -50,8 +50,8 @@ abstract contract Tickets is Initializable, ITickets {
 
     // The `Ticket` event signature is given by:
     // `keccak256(bytes("Ticket(address,uint256)"))`.
-    bytes32 private constant _TICKET_EVENT_SIGNATURE =
-        0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
+    //bytes32 private constant _TICKET_EVENT_SIGNATURE =
+    //    0x465c8871fac6f7c7079924b414b86ec86be97dae9732142865b86c5d0cd8a1eb;
 
     // =============================================================
     //                          CONSTRUCTOR
@@ -325,8 +325,8 @@ abstract contract Tickets is Initializable, ITickets {
 
             if (toMasked == 0) _revert(TicketsMintToZeroAddress.selector);
 
-            uint256 end = startTicketId + quantity;
-            uint256 ticketId = startTicketId;
+            //uint256 end = startTicketId + quantity;
+            //uint256 ticketId = startTicketId;
 
             /*do {
                 assembly {
@@ -343,7 +343,8 @@ abstract contract Tickets is Initializable, ITickets {
                 // that overflows uint256 will make the loop run out of gas.
             } while (++ticketId != end);*/
 
-            TicketsStorage.layout()._currentIndex = end;
+            //TicketsStorage.layout()._currentIndex = end;
+            TicketsStorage.layout()._currentIndex = startTicketId + quantity;
         }
     }
 

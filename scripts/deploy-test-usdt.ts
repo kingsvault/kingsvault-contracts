@@ -6,7 +6,6 @@ const { ethers, network } = hre;
 
 async function main() {
   const accounts = await ethers.getSigners();
-  console.log(`accounts`, accounts[0].address);
 
   // 1. Получаем фабрику контракта TestErc20
   const TestErc20Factory = await ethers.getContractFactory("TestErc20");
@@ -26,6 +25,12 @@ async function main() {
   console.log(`TestErc20 deployed to: ${testErc20.target}`);
 
   fs.writeFileSync(`./scripts/config.${network.name}.usdt_address.txt`, testErc20.target.toString(), { encoding: "utf8", });
+
+
+  await hre.run("verify:verify", {
+    address: testErc20.target,
+    constructorArguments: [name, symbol, decimals, initialSupply],
+  });
 }
 
 main().catch((error) => {

@@ -82,6 +82,8 @@ interface IKingsVaultCards {
 
     /// @dev Holds all mappings for user-related data, including admin/referrer roles.
     struct UsersStorage {
+        address _usdt; // ERC‑20 USDT token address used for payments.
+        address _teamWallet; // Address that will receive funds and hold the main wallet privileges.
         mapping(address => UserData) _user;
         mapping(address => bool) _admin;
         mapping(address => bool) _referrer;
@@ -95,6 +97,11 @@ interface IKingsVaultCards {
      * @dev Emitted when an admin is added or removed.
      */
     event AdminChanged(address indexed admin, bool indexed status);
+
+    /**
+     * @dev Emitted when the team wallet address changes from `prev` to `next`.
+     */
+    event TeamWalletChanged(address indexed prev, address indexed next);
 
     /**
      * @dev Emitted when a referrer is added or removed.

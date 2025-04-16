@@ -92,12 +92,18 @@ contract KingsVaultCardsV1 is
     /**
      * @notice Contract initializer (replaces constructor for upgradeable pattern).
      * @dev Sets up the initial configuration for the ERC1155 contract, VRF, and other modules.
-     * @param initialOwner_    Address of the initial owner/admin.
-     * @param vrfCoordinator_  Chainlink VRF coordinator address.
+     * @param initialOwner_   Address of the initial owner/admin.
+     * @param usdt_           ERC‑20 USDT token address used for payments.
+     * @param teamWallet_     Address that will receive funds and hold the main wallet privileges.
+     * @param vrfCoordinator_ Chainlink VRF coordinator address.
+     * @param linkToken_      Address of the Chainlink Token contract.
      */
     function initialize(
         address initialOwner_,
-        address vrfCoordinator_
+        address usdt_,
+        address teamWallet_,
+        address vrfCoordinator_,
+        address linkToken_
     ) public virtual initializer {
         // 1. Initialize ERC1155 with no default URI
         __ERC1155_init();
@@ -117,7 +123,11 @@ contract KingsVaultCardsV1 is
         __TicketsQueryable_init();
 
         // 4. Chainlink VRF base initialization
-        __VRFConsumerBaseV2_init_unchained(vrfCoordinator_);
+        __VRFConsumerBaseV2_init_unchained(vrfCoordinator_, linkToken_);
+
+        _getUsersStorage()._usdt = usdt_;
+        _getUsersStorage()._teamWallet = teamWallet_;
+        emit TeamWalletChanged(address(0), teamWallet_);
 
         // Setup admin role for the initial owner
         _getUsersStorage()._admin[initialOwner_] = true;
@@ -125,19 +135,30 @@ contract KingsVaultCardsV1 is
     }
 
     /**
-     * @dev Example placeholder for USDT token address retrieval.
-     *      In a production scenario, you'd store the actual address in StateStorage or pass it in the initializer.
+     * @notice Updates the team wallet address. Cannot be set to zero address.
+     * @param teamWallet_ The new address for the team wallet.
      */
-    function _usdt() private pure returns (IERC20) {
-        return IERC20(address(0)); // TODO: Replace with actual USDT address or stored reference
+    function setTeamWallet(address teamWallet_) external onlyOwner {
+        if (teamWallet_ == address(0)) {
+            revert ZeroTeamWallet();
+        }
+
+        emit TeamWalletChanged(_getUsersStorage()._teamWallet, teamWallet_);
+        _getUsersStorage()._teamWallet = teamWallet_;
+    }
+
+    /**
+     * @dev Example placeholder for USDT token address retrieval.
+     */
+    function _usdt() private view returns (IERC20) {
+        return IERC20(_getUsersStorage()._usdt);
     }
 
     /**
      * @dev Example placeholder for the team wallet address.
-     *      In a production scenario, store it in StateStorage or set via a function.
      */
-    function _teamWallet() private pure returns (address) {
-        return address(0); // TODO: Replace with actual team wallet
+    function _teamWallet() private view returns (address) {
+        return _getUsersStorage()._teamWallet;
     }
 
     /**
@@ -826,7 +847,7 @@ contract KingsVaultCardsV1 is
         uint16 requestConfirmations,
         uint32 callbackGasLimit
     ) external thenDrawStarted thenWinnersNotAwarded onlyOwner {
-        VRFCoordinatorV2Interface(getVrfCoordinator()).requestRandomWords(
+        _vrfCoordinator().requestRandomWords(
             keyHash,
             subscriptionId,
             requestConfirmations,
