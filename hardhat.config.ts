@@ -45,14 +45,14 @@ const config: HardhatUserConfig = {
     },
     mainnet: {
       chainId: 1,
-      url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+      url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
       accounts: {
         mnemonic: process.env.MNEMONIC,
       },
     },
     sepolia: {
       chainId: 11155111,
-      url: `https://eth-sepolia.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+      url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
       accounts: {
         mnemonic: process.env.MNEMONIC,
       },

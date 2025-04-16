@@ -1,5 +1,6 @@
 import hre from "hardhat";
 import fs from "node:fs";
+import { pause } from "./lib/pause";
 
 const { ethers, network } = hre;
 
@@ -26,7 +27,7 @@ async function main() {
 
   fs.writeFileSync(`./scripts/config.${network.name}.usdt_address.txt`, testErc20.target.toString(), { encoding: "utf8", });
 
-
+  await pause(10 * 1000);
   await hre.run("verify:verify", {
     address: testErc20.target,
     constructorArguments: [name, symbol, decimals, initialSupply],

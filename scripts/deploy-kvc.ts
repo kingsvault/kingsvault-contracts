@@ -1,5 +1,6 @@
 import hre from "hardhat";
 import fs from "node:fs";
+import { pause } from "./lib/pause";
 
 const { ethers, network } = hre;
 
@@ -45,10 +46,6 @@ async function main() {
   const implementation = await KingsVaultCardsV1Factory.deploy();
   await implementation.waitForDeployment();
   console.log("KingsVaultCardsV1 (implementation) deployed to:", implementation.target);
-  await hre.run("verify:verify", {
-    address: implementation.target,
-    constructorArguments: [],
-  });
 
 
   // 2. Кодируем вызов инициализатора
@@ -89,6 +86,7 @@ async function main() {
   fs.writeFileSync(`./scripts/config.${network.name}.proxy_admin_address.txt`, proxyInfo.admin, { encoding: "utf8", });
 
 
+  await pause(10 * 1000);
   await hre.run("verify:verify", {
     address: implementation.target,
     constructorArguments: [],
