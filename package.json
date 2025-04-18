@@ -1,12 +1,12 @@
 {
   "name": "kingsvault-contracts",
   "version": "1.0.0",
-  "description": "Kings Vault Smart Contracts",
+  "description": "KINGS VAULT SMART CONTRACTS",
   "keywords": [],
   "private": true,
   "license": "MIT",
   "author": {
-    "name": "Kings Vault",
+    "name": "KINGS VAULT",
     "email": "hi@kingsvault.io",
     "url": "https://kingsvault.io"
   },

@@ -1,1 +1,1 @@
-# Kings Vault Smart Contracts
+# KINGS VAULT SMART CONTRACTS
