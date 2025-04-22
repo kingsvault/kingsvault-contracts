@@ -22,7 +22,7 @@ const linkTokens = {
 
 const usdtTokens = {
   "mainnet": "!", //"0xdAC17F958D2ee523a2206206994597C13D831ec7", // 6 decimals
-  "sepolia": fs.readFileSync(`./scripts/config.sepolia.usdt_address.txt`, { encoding: "utf8", }),// 18 decimals
+  "sepolia": "0x42D8BCf255125BB186459AF66bB74EEF8b8cC391", // https://docs.wert.io/docs/supported-coins-and-blockchains#test-token-contracts //fs.readFileSync(`./scripts/config.sepolia.usdt_address.txt`, { encoding: "utf8", }),// 18 decimals
   "bsc": "0x55d398326f99059fF775485246999027B3197955", // 18 decimals
   "bscTestnet": fs.readFileSync(`./scripts/config.bscTestnet.usdt_address.txt`, { encoding: "utf8", }), // 18 decimals
 };
