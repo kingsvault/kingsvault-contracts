@@ -493,6 +493,7 @@ contract KingsVaultCardsV1 is
         }
 
         counter._totalRefRewardsClaimed += sendAmount;
+        counter._totalRefRewards -= sendAmount;
         _sendUsdt(ref, sendAmount);
         emit RefRewardsClaimed(ref, sendAmount);
 
@@ -641,6 +642,7 @@ contract KingsVaultCardsV1 is
         if (amount > 0) {
             uStore._user[to]._refRewards = 0;
             _getCounterStorage()._totalRefRewardsClaimed += amount;
+            _getCounterStorage()._totalRefRewards -= amount;
             _sendUsdt(to, amount);
             emit RefRewardsClaimed(to, amount);
         }

@@ -66,6 +66,10 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         return _getVrfStorage()._subscriptionId;
     }
 
+    function vrfSubscriptionId() external view returns (uint64) {
+        return _vrfSubscriptionId();
+    }
+
     /**
      * @dev Returns the address of the VRF Coordinator.
      */
