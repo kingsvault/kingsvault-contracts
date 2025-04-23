@@ -843,13 +843,12 @@ contract KingsVaultCardsV1 is
      */
     function selectWinners(
         bytes32 keyHash,
-        uint64 subscriptionId,
         uint16 requestConfirmations,
         uint32 callbackGasLimit
     ) external thenDrawStarted thenWinnersNotAwarded onlyOwner {
         _vrfCoordinator().requestRandomWords(
             keyHash,
-            subscriptionId,
+            _vrfSubscriptionId(),
             requestConfirmations,
             callbackGasLimit,
             1
