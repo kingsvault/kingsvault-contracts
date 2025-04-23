@@ -859,7 +859,7 @@ contract KingsVaultCardsV1 is
     /**
      * @notice Allows a winner to burn their special token in exchange for the "car" prize in USDT.
      */
-    function burnPrize() external nonReentrant thenWinnersAwarded {
+    function prizeCashOut() external nonReentrant thenWinnersAwarded {
         address sender = _msgSender();
         uint256 tokenId = _getWinnerTokenId();
         uint256 balance = balanceOf(sender, tokenId);
