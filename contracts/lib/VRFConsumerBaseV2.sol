@@ -88,14 +88,6 @@ abstract contract VRFConsumerBaseV2 is Initializable, OwnableUpgradeable {
         return LinkTokenInterface(_getVrfStorage()._linkToken);
     }
 
-    // TODO remove. only for testnet
-    function rawFulfillRandomWordsTest(
-        uint256 requestId,
-        uint256[] memory randomWords
-    ) external onlyOwner {
-        _fulfillRandomWords(requestId, randomWords);
-    }
-
     /**
      * @dev Called by the Chainlink VRF Coordinator to provide randomness.
      * Ensures that only the correct VRF Coordinator can call it.
