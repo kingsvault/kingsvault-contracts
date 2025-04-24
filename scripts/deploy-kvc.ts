@@ -29,7 +29,7 @@ const usdtTokens = {
 const teamWallets = {
   "mainnet": "!",
   "sepolia": "replaced",
-  "bsc": "!",
+  "bsc": "0xc02079E252D2b7E44A2926F0B059Dc627835a14E",
   "bscTestnet": "replaced",
 };
 
